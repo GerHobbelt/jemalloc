@@ -2163,6 +2163,10 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 	if (config_stats) {
 		assert(usize == isalloc(tsd_tsdn(tsd), allocation));
 		*tsd_thread_allocatedp_get(tsd) += usize;
+		int64_t used = *tsd_thread_allocatedp_get(tsd) - *tsd_thread_deallocatedp_get(tsd);
+		if (used > *tsd_thread_peakusedp_get(tsd)) {
+			*tsd_thread_peakusedp_get(tsd) = used;
+		}
 	}
 
 	if (sopts->slow) {
@@ -2758,6 +2762,10 @@ je_realloc(void *ptr, size_t arg_size) {
 		tsd = tsdn_tsd(tsdn);
 		*tsd_thread_allocatedp_get(tsd) += usize;
 		*tsd_thread_deallocatedp_get(tsd) += old_usize;
+		int64_t used = *tsd_thread_allocatedp_get(tsd) - *tsd_thread_deallocatedp_get(tsd);
+		if (used > *tsd_thread_peakusedp_get(tsd)) {
+			*tsd_thread_peakusedp_get(tsd) = used;
+		}
 	}
 	UTRACE(ptr, size, ret);
 	check_entry_exit_locking(tsdn);
@@ -3290,6 +3298,10 @@ je_rallocx(void *ptr, size_t size, int flags) {
 	if (config_stats) {
 		*tsd_thread_allocatedp_get(tsd) += usize;
 		*tsd_thread_deallocatedp_get(tsd) += old_usize;
+		int64_t used = *tsd_thread_allocatedp_get(tsd) - *tsd_thread_deallocatedp_get(tsd);
+		if (used > *tsd_thread_peakusedp_get(tsd)) {
+			*tsd_thread_peakusedp_get(tsd) = used;
+		}
 	}
 	UTRACE(ptr, size, p);
 	check_entry_exit_locking(tsd_tsdn(tsd));
@@ -3441,6 +3453,10 @@ je_xallocx(void *ptr, size_t size, size_t extra, int flags) {
 	if (config_stats) {
 		*tsd_thread_allocatedp_get(tsd) += usize;
 		*tsd_thread_deallocatedp_get(tsd) += old_usize;
+		int64_t used = *tsd_thread_allocatedp_get(tsd) - *tsd_thread_deallocatedp_get(tsd);
+		if (used > *tsd_thread_peakusedp_get(tsd)) {
+			*tsd_thread_peakusedp_get(tsd) = used;
+		}
 	}
 label_not_resized:
 	if (unlikely(!tsd_fast(tsd))) {

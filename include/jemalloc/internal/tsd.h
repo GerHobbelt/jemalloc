@@ -69,6 +69,7 @@ typedef void (*test_callback_t)(int *);
     O(offset_state,		uint64_t,		uint64_t)	\
     O(thread_allocated,		uint64_t,		uint64_t)	\
     O(thread_deallocated,	uint64_t,		uint64_t)	\
+    O(thread_peakused,		int64_t,		int64_t)	\
     O(bytes_until_sample,	int64_t,		int64_t)	\
     O(prof_tdata,		prof_tdata_t *,		prof_tdata_t *)	\
     O(rtree_ctx,		rtree_ctx_t,		rtree_ctx_t)	\
@@ -84,6 +85,7 @@ typedef void (*test_callback_t)(int *);
     ATOMIC_INIT(tsd_state_uninitialized),				\
     TCACHE_ENABLED_ZERO_INITIALIZER,					\
     false,								\
+    0,									\
     0,									\
     0,									\
     0,									\
