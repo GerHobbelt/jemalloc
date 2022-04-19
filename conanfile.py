@@ -14,7 +14,7 @@ class JEMallocConan(ConanFile):
     generators = "cmake"
 
     def source(self):
-        self.run("git clone https://github.com/gurumnet/jemalloc.git -b 5.2.1-0")
+        self.run("git clone https://github.com/gurumnet/jemalloc.git -b 5.2.1-1")
 
     def build(self):
         os.chdir('jemalloc')
@@ -23,6 +23,7 @@ class JEMallocConan(ConanFile):
 
     def package(self):
         self.copy("*.a", dst="lib", src="jemalloc/lib", keep_path=False)
+        self.copy("*.h", dst="include", src="jemalloc/include", keep_path=True)
 
     def package_info(self):
         self.cpp_info.libs = ["jemalloc"]
