@@ -400,10 +400,10 @@ $(C_JET_SYMS): %.sym:
 	$(DUMP_SYMS) $< | $(AWK) -f $(objroot)include/jemalloc/internal/private_symbols_jet.awk > $@
 
 $(objroot)include/jemalloc/internal/private_namespace.gen.h: $(C_SYMS)
-	$(SHELL) $(srcroot)include/jemalloc/internal/private_namespace.sh $^ > $@
+	"$(SHELL)" $(srcroot)include/jemalloc/internal/private_namespace.sh $^ > $@
 
 $(objroot)include/jemalloc/internal/private_namespace_jet.gen.h: $(C_JET_SYMS)
-	$(SHELL) $(srcroot)include/jemalloc/internal/private_namespace.sh $^ > $@
+	"$(SHELL)" $(srcroot)include/jemalloc/internal/private_namespace.sh $^ > $@
 
 %.h: %.gen.h
 	@if ! `cmp -s $< $@` ; then echo "cp $< $<"; cp $< $@ ; fi
