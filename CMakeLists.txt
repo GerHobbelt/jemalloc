@@ -9,7 +9,10 @@ set(pck_version $ENV{REZ_BUILD_PROJECT_VERSION})
 
 message(STATUS "----------  Env and CMake variables-----")
 message(STATUS "PROJECT_BINARY_DIR = ${PROJECT_BINARY_DIR}")
+message(STATUS "env REZ_BUILD_PROJECT_VERSION = $ENV{REZ_BUILD_PROJECT_VERSION}")
 message(STATUS "env REZ_BUILD_SOURCE_PATH = $ENV{REZ_BUILD_SOURCE_PATH}")
+message(STATUS "env REZ_BUILD_PATH = $ENV{REZ_BUILD_PATH}")
+message(STATUS "CMAKE_INSTALL_PREFIX = ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "----------------------------------------")
 
 if(${REZ_BUILD_INSTALL})
