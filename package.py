@@ -36,6 +36,9 @@ variants = [
 
 uuid = "repository.jemalloc"
 
+# NOTE: If the root of the repo has no "configure" file (not the "configure.ac"),
+# you need to run "autoconf" from the root first.
+
 def pre_build_commands():
    command("source /opt/rh/devtoolset-6/enable")
 

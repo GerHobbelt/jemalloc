@@ -27,7 +27,7 @@ ExternalProject_add(
    BINARY_DIR $ENV{REZ_BUILD_PATH}
    PREFIX ${pck_prefix}
    UPDATE_COMMAND ""
-   CONFIGURE_COMMAND $ENV{REZ_BUILD_SOURCE_PATH}/autogen.sh --prefix=${CMAKE_INSTALL_PREFIX} --with-jemalloc-prefix=__jemalloc
+   CONFIGURE_COMMAND $ENV{REZ_BUILD_SOURCE_PATH}/configure --prefix=${CMAKE_INSTALL_PREFIX} --with-jemalloc-prefix=__jemalloc
    BUILD_COMMAND make -j$ENV{REZ_BUILD_THREAD_COUNT}
    INSTALL_COMMAND ${install_cmd}
    BUILD_IN_SOURCE 0
