@@ -129,6 +129,9 @@ CTL_PROTO(opt_zero)
 CTL_PROTO(opt_utrace)
 CTL_PROTO(opt_xmalloc)
 CTL_PROTO(opt_experimental_infallible_new)
+CTL_PROTO(opt_max_batched_size)
+CTL_PROTO(opt_remote_free_max)
+CTL_PROTO(opt_remote_free_max_batch)
 CTL_PROTO(opt_tcache)
 CTL_PROTO(opt_tcache_max)
 CTL_PROTO(opt_tcache_nslots_small_min)
@@ -192,6 +195,7 @@ CTL_PROTO(arenas_dirty_decay_ms)
 CTL_PROTO(arenas_muzzy_decay_ms)
 CTL_PROTO(arenas_quantum)
 CTL_PROTO(arenas_page)
+CTL_PROTO(arenas_hugepage)
 CTL_PROTO(arenas_tcache_max)
 CTL_PROTO(arenas_nbins)
 CTL_PROTO(arenas_nhbins)
@@ -236,6 +240,10 @@ CTL_PROTO(stats_arenas_i_bins_j_nslabs)
 CTL_PROTO(stats_arenas_i_bins_j_nreslabs)
 CTL_PROTO(stats_arenas_i_bins_j_curslabs)
 CTL_PROTO(stats_arenas_i_bins_j_nonfull_slabs)
+CTL_PROTO(stats_arenas_i_bins_j_batch_pops)
+CTL_PROTO(stats_arenas_i_bins_j_batch_failed_pushes)
+CTL_PROTO(stats_arenas_i_bins_j_batch_pushes)
+CTL_PROTO(stats_arenas_i_bins_j_batch_pushed_elems)
 INDEX_PROTO(stats_arenas_i_bins_j)
 CTL_PROTO(stats_arenas_i_lextents_j_nmalloc)
 CTL_PROTO(stats_arenas_i_lextents_j_ndalloc)
@@ -480,6 +488,9 @@ static const ctl_named_node_t opt_node[] = {
 	{NAME("xmalloc"),	CTL(opt_xmalloc)},
 	{NAME("experimental_infallible_new"),
 		CTL(opt_experimental_infallible_new)},
+	{NAME("max_batched_size"),	CTL(opt_max_batched_size)},
+	{NAME("remote_free_max"),	CTL(opt_remote_free_max)},
+	{NAME("remote_free_max_batch"),	CTL(opt_remote_free_max_batch)},
 	{NAME("tcache"),	CTL(opt_tcache)},
 	{NAME("tcache_max"),	CTL(opt_tcache_max)},
 	{NAME("tcache_nslots_small_min"),
@@ -583,6 +594,7 @@ static const ctl_named_node_t arenas_node[] = {
 	{NAME("muzzy_decay_ms"), CTL(arenas_muzzy_decay_ms)},
 	{NAME("quantum"),	CTL(arenas_quantum)},
 	{NAME("page"),		CTL(arenas_page)},
+	{NAME("hugepage"),	CTL(arenas_hugepage)},
 	{NAME("tcache_max"),	CTL(arenas_tcache_max)},
 	{NAME("nbins"),		CTL(arenas_nbins)},
 	{NAME("nhbins"),	CTL(arenas_nhbins)},
@@ -688,6 +700,14 @@ static const ctl_named_node_t stats_arenas_i_bins_j_node[] = {
 	{NAME("nreslabs"),	CTL(stats_arenas_i_bins_j_nreslabs)},
 	{NAME("curslabs"),	CTL(stats_arenas_i_bins_j_curslabs)},
 	{NAME("nonfull_slabs"),	CTL(stats_arenas_i_bins_j_nonfull_slabs)},
+	{NAME("batch_pops"),
+		CTL(stats_arenas_i_bins_j_batch_pops)},
+	{NAME("batch_failed_pushes"),
+		CTL(stats_arenas_i_bins_j_batch_failed_pushes)},
+	{NAME("batch_pushes"),
+		CTL(stats_arenas_i_bins_j_batch_pushes)},
+	{NAME("batch_pushed_elems"),
+		CTL(stats_arenas_i_bins_j_batch_pushed_elems)},
 	{NAME("mutex"),		CHILD(named, stats_arenas_i_bins_j_mutex)}
 };
 
@@ -1240,6 +1260,16 @@ MUTEX_PROF_ARENA_MUTEXES
 				assert(bstats->curslabs == 0);
 				assert(bstats->nonfull_slabs == 0);
 			}
+
+			merged->batch_pops
+			    += bstats->batch_pops;
+			merged->batch_failed_pushes
+			    += bstats->batch_failed_pushes;
+			merged->batch_pushes
+			    += bstats->batch_pushes;
+			merged->batch_pushed_elems
+			    += bstats->batch_pushed_elems;
+
 			malloc_mutex_prof_merge(&sdstats->bstats[i].mutex_data,
 			    &astats->bstats[i].mutex_data);
 		}
@@ -2203,6 +2233,11 @@ CTL_RO_NL_CGEN(config_utrace, opt_utrace, opt_utrace, bool)
 CTL_RO_NL_CGEN(config_xmalloc, opt_xmalloc, opt_xmalloc, bool)
 CTL_RO_NL_CGEN(config_enable_cxx, opt_experimental_infallible_new,
     opt_experimental_infallible_new, bool)
+CTL_RO_NL_GEN(opt_max_batched_size, opt_bin_info_max_batched_size, size_t)
+CTL_RO_NL_GEN(opt_remote_free_max, opt_bin_info_remote_free_max,
+    size_t)
+CTL_RO_NL_GEN(opt_remote_free_max_batch, opt_bin_info_remote_free_max_batch,
+    size_t)
 CTL_RO_NL_GEN(opt_tcache, opt_tcache, bool)
 CTL_RO_NL_GEN(opt_tcache_max, opt_tcache_max, size_t)
 CTL_RO_NL_GEN(opt_tcache_nslots_small_min, opt_tcache_nslots_small_min,
@@ -3251,6 +3286,7 @@ arenas_muzzy_decay_ms_ctl(tsd_t *tsd, const size_t *mib, size_t miblen,
 
 CTL_RO_NL_GEN(arenas_quantum, QUANTUM, size_t)
 CTL_RO_NL_GEN(arenas_page, PAGE, size_t)
+CTL_RO_NL_GEN(arenas_hugepage, HUGEPAGE, size_t)
 CTL_RO_NL_GEN(arenas_tcache_max, global_do_not_change_tcache_maxclass, size_t)
 CTL_RO_NL_GEN(arenas_nbins, SC_NBINS, unsigned)
 CTL_RO_NL_GEN(arenas_nhbins, global_do_not_change_tcache_nbins, unsigned)
@@ -3946,6 +3982,14 @@ CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_curslabs,
     arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.curslabs, size_t)
 CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_nonfull_slabs,
     arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.nonfull_slabs, size_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_batch_pops,
+    arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.batch_pops, uint64_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_batch_failed_pushes,
+    arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.batch_failed_pushes, uint64_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_batch_pushes,
+    arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.batch_pushes, uint64_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_bins_j_batch_pushed_elems,
+    arenas_i(mib[2])->astats->bstats[mib[4]].stats_data.batch_pushed_elems, uint64_t)
 
 static const ctl_named_node_t *
 stats_arenas_i_bins_j_index(tsdn_t *tsdn, const size_t *mib,
