@@ -125,6 +125,9 @@ struct cache_bin_s {
 	 * array.  Immutable after initialization.
 	 */
 	uint16_t low_bits_empty;
+
+	/* The maximum number of cached items in the bin. */
+	cache_bin_info_t bin_info;
 };
 
 /*
@@ -691,8 +694,7 @@ void cache_bin_info_compute_alloc(cache_bin_info_t *infos, szind_t ninfos,
  */
 void cache_bin_preincrement(cache_bin_info_t *infos, szind_t ninfos,
     void *alloc, size_t *cur_offset);
-void cache_bin_postincrement(cache_bin_info_t *infos, szind_t ninfos,
-    void *alloc, size_t *cur_offset);
+void cache_bin_postincrement(void *alloc, size_t *cur_offset);
 void cache_bin_init(cache_bin_t *bin, cache_bin_info_t *info, void *alloc,
     size_t *cur_offset);
 
@@ -702,5 +704,6 @@ void cache_bin_init(cache_bin_t *bin, cache_bin_info_t *info, void *alloc,
  * not cache_bin_init was called on it.
  */
 bool cache_bin_still_zero_initialized(cache_bin_t *bin);
+bool cache_bin_stack_use_thp(void);
 
 #endif /* JEMALLOC_INTERNAL_CACHE_BIN_H */

@@ -14,6 +14,17 @@ cache_bin_info_init(cache_bin_info_t *info,
 	info->ncached_max = (cache_bin_sz_t)ncached_max;
 }
 
+bool
+cache_bin_stack_use_thp(void) {
+	/*
+	 * If metadata_thp is enabled, allocating tcache stack from the base
+	 * allocator for efficiency gains.  The downside, however, is that base
+	 * allocator never purges freed memory, and may cache a fair amount of
+	 * memory after many threads are terminated and not reused.
+	 */
+	return metadata_thp_enabled();
+}
+
 void
 cache_bin_info_compute_alloc(cache_bin_info_t *infos, szind_t ninfos,
     size_t *size, size_t *alignment) {
@@ -31,10 +42,11 @@ cache_bin_info_compute_alloc(cache_bin_info_t *infos, szind_t ninfos,
 	}
 
 	/*
-	 * Align to at least PAGE, to minimize the # of TLBs needed by the
-	 * smaller sizes; also helps if the larger sizes don't get used at all.
+	 * When not using THP, align to at least PAGE, to minimize the # of TLBs
+	 * needed by the smaller sizes; also helps if the larger sizes don't get
+	 * used at all.
 	 */
-	*alignment = PAGE;
+	*alignment = cache_bin_stack_use_thp() ? QUANTUM : PAGE;
 }
 
 void
@@ -56,8 +68,7 @@ cache_bin_preincrement(cache_bin_info_t *infos, szind_t ninfos, void *alloc,
 }
 
 void
-cache_bin_postincrement(cache_bin_info_t *infos, szind_t ninfos, void *alloc,
-    size_t *cur_offset) {
+cache_bin_postincrement(void *alloc, size_t *cur_offset) {
 	*(uintptr_t *)((byte_t *)alloc + *cur_offset) =
 	    cache_bin_trailing_junk;
 	*cur_offset += sizeof(void *);
@@ -83,6 +94,7 @@ cache_bin_init(cache_bin_t *bin, cache_bin_info_t *info, void *alloc,
 	bin->low_bits_low_water = (uint16_t)(uintptr_t)bin->stack_head;
 	bin->low_bits_full = (uint16_t)(uintptr_t)full_position;
 	bin->low_bits_empty = (uint16_t)(uintptr_t)empty_position;
+	cache_bin_info_init(&bin->bin_info, info->ncached_max);
 	cache_bin_sz_t free_spots = cache_bin_diff(bin,
 	    bin->low_bits_full, (uint16_t)(uintptr_t)bin->stack_head);
 	assert(free_spots == bin_stack_size);
