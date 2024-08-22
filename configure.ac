@@ -522,10 +522,10 @@ typedef unsigned __int32 uint32_t;
       return 0;
 ]])],
       [je_cv_rdtscp=yes],
-      [je_cv_rdstcp=no],
+      [je_cv_rdtscp=no],
       [je_cv_rdtscp=no]))
       if test "x${je_cv_rdtscp}" = "xyes"; then
-        AC_DEFINE([HAVE_RDTSCP], 1, [])
+        AC_DEFINE([JEMALLOC_HAVE_RDTSCP], [ ], [ ])
       fi
     fi
     ;;
@@ -718,6 +718,19 @@ case "${host}" in
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	AC_DEFINE([JEMALLOC_C11_ATOMICS], [ ], [ ])
 	force_tls="0"
+	if test "${LG_SIZEOF_PTR}" = "3"; then
+	  default_retain="1"
+	fi
+	zero_realloc_default_free="1"
+	;;
+  *-*-linux-musl*)
+	dnl syscall(2) and secure_getenv(3) are exposed by _GNU_SOURCE.
+	JE_APPEND_VS(CPPFLAGS, -D_GNU_SOURCE)
+	abi="elf"
+	AC_DEFINE([JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS], [ ], [ ])
+	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
+	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
+	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	if test "${LG_SIZEOF_PTR}" = "3"; then
 	  default_retain="1"
 	fi
@@ -1088,7 +1101,7 @@ AC_SUBST([JEMALLOC_CPREFIX])
 AC_ARG_WITH([export],
   [AS_HELP_STRING([--without-export], [disable exporting jemalloc public APIs])],
   [if test "x$with_export" = "xno"; then
-  AC_DEFINE([JEMALLOC_EXPORT],[], [ ])
+  AC_DEFINE([JEMALLOC_EXPORT], [ ], [ ])
 fi]
 )
 
@@ -1650,7 +1663,7 @@ fi
 [enable_uaf_detection="0"]
 )
 if test "x$enable_uaf_detection" = "x1" ; then
-  AC_DEFINE([JEMALLOC_UAF_DETECTION], [ ])
+  AC_DEFINE([JEMALLOC_UAF_DETECTION], [ ], [ ])
 fi
 AC_SUBST([enable_uaf_detection])
 
