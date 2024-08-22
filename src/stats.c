@@ -1564,6 +1564,7 @@ stats_general_print(emitter_t *emitter) {
 	OPT_WRITE_SIZE_T("hpa_hugification_threshold")
 	OPT_WRITE_UINT64("hpa_hugify_delay_ms")
 	OPT_WRITE_UINT64("hpa_min_purge_interval_ms")
+	OPT_WRITE_BOOL("hpa_strict_min_purge_interval")
 	if (je_mallctl("opt.hpa_dirty_mult", (void *)&u32v, &u32sz, NULL, 0)
 	    == 0) {
 		/*
@@ -1895,7 +1896,7 @@ stats_print_helper(emitter_t *emitter, bool merged, bool destroyed,
 		size_t mib[3];
 		size_t miblen = sizeof(mib) / sizeof(size_t);
 		size_t sz;
-		VARIABLE_ARRAY(bool, initialized, narenas);
+		VARIABLE_ARRAY_UNSAFE(bool, initialized, narenas);
 		bool destroyed_initialized;
 		unsigned i, ninitialized;
 

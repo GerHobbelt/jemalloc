@@ -103,6 +103,7 @@ CTL_PROTO(opt_hpa_slab_max_alloc)
 CTL_PROTO(opt_hpa_hugification_threshold)
 CTL_PROTO(opt_hpa_hugify_delay_ms)
 CTL_PROTO(opt_hpa_min_purge_interval_ms)
+CTL_PROTO(opt_hpa_strict_min_purge_interval)
 CTL_PROTO(opt_hpa_dirty_mult)
 CTL_PROTO(opt_hpa_sec_nshards)
 CTL_PROTO(opt_hpa_sec_max_alloc)
@@ -459,6 +460,7 @@ static const ctl_named_node_t opt_node[] = {
 		CTL(opt_hpa_hugification_threshold)},
 	{NAME("hpa_hugify_delay_ms"), CTL(opt_hpa_hugify_delay_ms)},
 	{NAME("hpa_min_purge_interval_ms"), CTL(opt_hpa_min_purge_interval_ms)},
+	{NAME("hpa_strict_min_purge_interval"), CTL(opt_hpa_strict_min_purge_interval)},
 	{NAME("hpa_dirty_mult"), CTL(opt_hpa_dirty_mult)},
 	{NAME("hpa_sec_nshards"),	CTL(opt_hpa_sec_nshards)},
 	{NAME("hpa_sec_max_alloc"),	CTL(opt_hpa_sec_max_alloc)},
@@ -1377,7 +1379,7 @@ ctl_refresh(tsdn_t *tsdn) {
 	const unsigned narenas = ctl_arenas->narenas;
 	assert(narenas > 0);
 	ctl_arena_t *ctl_sarena = arenas_i(MALLCTL_ARENAS_ALL);
-	VARIABLE_ARRAY(arena_t *, tarenas, narenas);
+	VARIABLE_ARRAY_UNSAFE(arena_t *, tarenas, narenas);
 
 	/*
 	 * Clear sum stats, since they will be merged into by
@@ -2193,6 +2195,8 @@ CTL_RO_NL_GEN(opt_hpa_hugification_threshold,
 CTL_RO_NL_GEN(opt_hpa_hugify_delay_ms, opt_hpa_opts.hugify_delay_ms, uint64_t)
 CTL_RO_NL_GEN(opt_hpa_min_purge_interval_ms, opt_hpa_opts.min_purge_interval_ms,
     uint64_t)
+CTL_RO_NL_GEN(opt_hpa_strict_min_purge_interval,
+    opt_hpa_opts.strict_min_purge_interval, bool)
 
 /*
  * This will have to change before we publicly document this option; fxp_t and
@@ -2722,7 +2726,7 @@ arena_i_decay(tsdn_t *tsdn, unsigned arena_ind, bool all) {
 		 */
 		if (arena_ind == MALLCTL_ARENAS_ALL || arena_ind == narenas) {
 			unsigned i;
-			VARIABLE_ARRAY(arena_t *, tarenas, narenas);
+			VARIABLE_ARRAY_UNSAFE(arena_t *, tarenas, narenas);
 
 			for (i = 0; i < narenas; i++) {
 				tarenas[i] = arena_get(tsdn, i, false);
