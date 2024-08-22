@@ -104,15 +104,15 @@ arena_prof_info_get(tsd_t *tsd, const void *ptr, emap_alloc_ctx_t *alloc_ctx,
 		if (reset_recent &&
 		    large_dalloc_safety_checks(edata, ptr,
 		    edata_szind_get(edata))) {
-			prof_info->alloc_tctx = (prof_tctx_t *)(uintptr_t)1U;
+			prof_info->alloc_tctx = PROF_TCTX_SENTINEL;
 			return;
 		}
 		large_prof_info_get(tsd, edata, prof_info, reset_recent);
 	} else {
-		prof_info->alloc_tctx = (prof_tctx_t *)(uintptr_t)1U;
+		prof_info->alloc_tctx = PROF_TCTX_SENTINEL;
 		/*
 		 * No need to set other fields in prof_info; they will never be
-		 * accessed if (uintptr_t)alloc_tctx == (uintptr_t)1U.
+		 * accessed if alloc_tctx == PROF_TCTX_SENTINEL.
 		 */
 	}
 }
@@ -513,7 +513,7 @@ arena_cache_oblivious_randomize(tsdn_t *tsdn, arena_t *arena, edata_t *edata,
 		}
 		uintptr_t random_offset = ((uintptr_t)r) << (LG_PAGE -
 		    lg_range);
-		edata->e_addr = (void *)((uintptr_t)edata->e_addr +
+		edata->e_addr = (void *)((byte_t *)edata->e_addr +
 		    random_offset);
 		assert(ALIGNMENT_ADDR2BASE(edata->e_addr, alignment) ==
 		    edata->e_addr);
@@ -599,7 +599,7 @@ arena_dalloc_bin_locked_finish(tsdn_t *tsdn, arena_t *arena, bin_t *bin,
 
 static inline bin_t *
 arena_get_bin(arena_t *arena, szind_t binind, unsigned binshard) {
-	bin_t *shard0 = (bin_t *)((uintptr_t)arena + arena_bin_offsets[binind]);
+	bin_t *shard0 = (bin_t *)((byte_t *)arena + arena_bin_offsets[binind]);
 	return shard0 + binshard;
 }
 

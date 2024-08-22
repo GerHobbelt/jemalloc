@@ -865,6 +865,14 @@ malloc_conf_multi_sizes_next(const char **slab_size_segment_cur,
 	return false;
 }
 
+static void
+malloc_conf_format_error(const char *msg, const char *begin, const char *end) {
+	size_t len = end - begin + 1;
+	len = len > BUFERROR_BUF ? BUFERROR_BUF : len;
+
+	malloc_printf("<jemalloc>: %s -- %.*s\n", msg, (int)len, begin);
+}
+
 static bool
 malloc_conf_next(char const **opts_p, char const **k_p, size_t *klen_p,
     char const **v_p, size_t *vlen_p) {
@@ -898,13 +906,15 @@ malloc_conf_next(char const **opts_p, char const **k_p, size_t *klen_p,
 			break;
 		case '\0':
 			if (opts != *opts_p) {
-				malloc_write("<jemalloc>: Conf string ends "
-				    "with key\n");
+				malloc_conf_format_error(
+				    "Conf string ends with key",
+				    *opts_p, opts - 1);
 				had_conf_error = true;
 			}
 			return true;
 		default:
-			malloc_write("<jemalloc>: Malformed conf string\n");
+			malloc_conf_format_error(
+			    "Malformed conf string", *opts_p, opts);
 			had_conf_error = true;
 			return true;
 		}
@@ -922,8 +932,9 @@ malloc_conf_next(char const **opts_p, char const **k_p, size_t *klen_p,
 			 * comma if one exists.
 			 */
 			if (*opts == '\0') {
-				malloc_write("<jemalloc>: Conf string ends "
-				    "with comma\n");
+				malloc_conf_format_error(
+				    "Conf string ends with comma",
+				    *opts_p, opts - 1);
 				had_conf_error = true;
 			}
 			*vlen_p = (uintptr_t)opts - 1 - (uintptr_t)*v_p;
@@ -2529,12 +2540,12 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 		    sample_event);
 
 		emap_alloc_ctx_t alloc_ctx;
-		if (likely((uintptr_t)tctx == (uintptr_t)1U)) {
+		if (likely(tctx == PROF_TCTX_SENTINEL)) {
 			alloc_ctx.slab = sz_can_use_slab(usize);
 			allocation = imalloc_no_sample(
 			    sopts, dopts, tsd, usize, usize, ind,
 			    alloc_ctx.slab);
-		} else if ((uintptr_t)tctx > (uintptr_t)1U) {
+		} else if (tctx != NULL) {
 			allocation = imalloc_sample(
 			    sopts, dopts, tsd, usize, ind);
 			alloc_ctx.slab = false;
@@ -3366,7 +3377,7 @@ irallocx_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t size,
 	bool sample_event = te_prof_sample_event_lookahead(tsd, usize);
 	prof_tctx_t *tctx = prof_alloc_prep(tsd, prof_active, sample_event);
 	void *p;
-	if (unlikely((uintptr_t)tctx != (uintptr_t)1U)) {
+	if (unlikely(tctx != PROF_TCTX_SENTINEL)) {
 		p = irallocx_prof_sample(tsd_tsdn(tsd), old_ptr, old_usize,
 		    usize, alignment, zero, tcache, arena, tctx, hook_args);
 	} else {
@@ -3446,7 +3457,7 @@ do_rallocx(void *ptr, size_t size, int flags, bool is_realloc) {
 	if (config_fill && unlikely(opt_junk_alloc) && usize > old_usize
 	    && !zero) {
 		size_t excess_len = usize - old_usize;
-		void *excess_start = (void *)((uintptr_t)p + old_usize);
+		void *excess_start = (void *)((byte_t *)p + old_usize);
 		junk_alloc_callback(excess_start, excess_len);
 	}
 
@@ -3612,7 +3623,7 @@ ixallocx_prof(tsd_t *tsd, void *ptr, size_t old_usize, size_t size,
 	prof_tctx_t *tctx = prof_alloc_prep(tsd, prof_active, sample_event);
 
 	size_t usize;
-	if (unlikely((uintptr_t)tctx != (uintptr_t)1U)) {
+	if (unlikely(tctx != PROF_TCTX_SENTINEL)) {
 		usize = ixallocx_prof_sample(tsd_tsdn(tsd), ptr, old_usize,
 		    size, extra, alignment, zero, tctx);
 	} else {
@@ -3716,7 +3727,7 @@ je_xallocx(void *ptr, size_t size, size_t extra, int flags) {
 	if (config_fill && unlikely(opt_junk_alloc) && usize > old_usize &&
 	    !zero) {
 		size_t excess_len = usize - old_usize;
-		void *excess_start = (void *)((uintptr_t)ptr + old_usize);
+		void *excess_start = (void *)((byte_t *)ptr + old_usize);
 		junk_alloc_callback(excess_start, excess_len);
 	}
 label_not_resized:
