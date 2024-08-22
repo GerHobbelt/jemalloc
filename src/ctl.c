@@ -1816,7 +1816,9 @@ ctl_mtx_assert_held(tsdn_t *tsdn) {
 /* Verify that the space provided is enough. */
 #define VERIFY_READ(t)	do {						\
 	if (oldp == NULL || oldlenp == NULL || *oldlenp != sizeof(t)) {	\
-		*oldlenp = 0;						\
+		if (oldlenp != NULL) {					\
+			*oldlenp = 0;					\
+		}							\
 		ret = EINVAL;						\
 		goto label_return;					\
 	}								\
@@ -2743,7 +2745,6 @@ arena_i_dss_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	int ret;
 	const char *dss = NULL;
 	unsigned arena_ind;
-	dss_prec_t dss_prec_old = dss_prec_limit;
 	dss_prec_t dss_prec = dss_prec_limit;
 
 	malloc_mutex_lock(tsd_tsdn(tsd), &ctl_mtx);
@@ -2771,6 +2772,7 @@ arena_i_dss_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	 * Access via index narenas is deprecated, and scheduled for removal in
 	 * 6.0.0.
 	 */
+	dss_prec_t dss_prec_old;
 	if (arena_ind == MALLCTL_ARENAS_ALL || arena_ind ==
 	    ctl_arenas->narenas) {
 		if (dss_prec != dss_prec_limit &&
@@ -3213,19 +3215,21 @@ arenas_lookup_ctl(tsd_t *tsd, const size_t *mib,
 	int ret;
 	unsigned arena_ind;
 	void *ptr;
-	edata_t *edata;
+	emap_full_alloc_ctx_t alloc_ctx;
+	bool ptr_not_present;
 	arena_t *arena;
 
 	ptr = NULL;
 	ret = EINVAL;
 	malloc_mutex_lock(tsd_tsdn(tsd), &ctl_mtx);
 	WRITE(ptr, void *);
-	edata = emap_edata_lookup(tsd_tsdn(tsd), &arena_emap_global, ptr);
-	if (edata == NULL) {
+	ptr_not_present = emap_full_alloc_ctx_try_lookup(tsd_tsdn(tsd), &arena_emap_global, ptr,
+		&alloc_ctx);
+	if (ptr_not_present || alloc_ctx.edata == NULL) {
 		goto label_return;
 	}
 
-	arena = arena_get_from_edata(edata);
+	arena = arena_get_from_edata(alloc_ctx.edata);
 	if (arena == NULL) {
 		goto label_return;
 	}
