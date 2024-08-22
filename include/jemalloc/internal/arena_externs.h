@@ -1,8 +1,11 @@
 #ifndef JEMALLOC_INTERNAL_ARENA_EXTERNS_H
 #define JEMALLOC_INTERNAL_ARENA_EXTERNS_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
+#include "jemalloc/internal/arena_stats.h"
 #include "jemalloc/internal/bin.h"
 #include "jemalloc/internal/div.h"
+#include "jemalloc/internal/emap.h"
 #include "jemalloc/internal/extent_dss.h"
 #include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/pages.h"
@@ -18,11 +21,10 @@ extern ssize_t opt_dirty_decay_ms;
 extern ssize_t opt_muzzy_decay_ms;
 
 extern percpu_arena_mode_t opt_percpu_arena;
-extern const char *percpu_arena_mode_names[];
+extern const char *const percpu_arena_mode_names[];
 
 extern div_info_t arena_binind_div_info[SC_NBINS];
 
-extern malloc_mutex_t arenas_lock;
 extern emap_t arena_emap_global;
 
 extern size_t opt_oversize_threshold;
@@ -48,9 +50,9 @@ edata_t *arena_extent_alloc_large(tsdn_t *tsdn, arena_t *arena,
 void arena_extent_dalloc_large_prep(tsdn_t *tsdn, arena_t *arena,
     edata_t *edata);
 void arena_extent_ralloc_large_shrink(tsdn_t *tsdn, arena_t *arena,
-    edata_t *edata, size_t oldsize);
+    edata_t *edata, size_t oldusize);
 void arena_extent_ralloc_large_expand(tsdn_t *tsdn, arena_t *arena,
-    edata_t *edata, size_t oldsize);
+    edata_t *edata, size_t oldusize);
 bool arena_decay_ms_set(tsdn_t *tsdn, arena_t *arena, extent_state_t state,
     ssize_t decay_ms);
 ssize_t arena_decay_ms_get(arena_t *arena, extent_state_t state);

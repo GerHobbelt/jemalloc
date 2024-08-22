@@ -1,6 +1,12 @@
 #ifndef JEMALLOC_INTERNAL_TCACHE_EXTERNS_H
 #define JEMALLOC_INTERNAL_TCACHE_EXTERNS_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
+#include "jemalloc/internal/base.h"
+#include "jemalloc/internal/cache_bin.h"
+#include "jemalloc/internal/sz.h"
+#include "jemalloc/internal/tcache_types.h"
+
 extern bool opt_tcache;
 extern size_t opt_tcache_max;
 extern ssize_t	opt_lg_tcache_nslots_mul;
@@ -36,14 +42,14 @@ extern tcaches_t	*tcaches;
 
 size_t tcache_salloc(tsdn_t *tsdn, const void *ptr);
 void *tcache_alloc_small_hard(tsdn_t *tsdn, arena_t *arena, tcache_t *tcache,
-    cache_bin_t *tbin, szind_t binind, bool *tcache_success);
+    cache_bin_t *cache_bin, szind_t binind, bool *tcache_success);
 
-void tcache_bin_flush_small(tsd_t *tsd, tcache_t *tcache, cache_bin_t *tbin,
-    szind_t binind, unsigned rem);
-void tcache_bin_flush_large(tsd_t *tsd, tcache_t *tcache, cache_bin_t *tbin,
-    szind_t binind, unsigned rem);
-void tcache_bin_flush_stashed(tsd_t *tsd, tcache_t *tcache, cache_bin_t *bin,
-    szind_t binind, bool is_small);
+void tcache_bin_flush_small(tsd_t *tsd, tcache_t *tcache,
+    cache_bin_t *cache_bin, szind_t binind, unsigned rem);
+void tcache_bin_flush_large(tsd_t *tsd, tcache_t *tcache,
+    cache_bin_t *cache_bin, szind_t binind, unsigned rem);
+void tcache_bin_flush_stashed(tsd_t *tsd, tcache_t *tcache,
+    cache_bin_t *cache_bin, szind_t binind, bool is_small);
 void tcache_arena_reassociate(tsdn_t *tsdn, tcache_slow_t *tcache_slow,
     tcache_t *tcache, arena_t *arena);
 tcache_t *tcache_create_explicit(tsd_t *tsd);

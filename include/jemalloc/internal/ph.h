@@ -1,6 +1,10 @@
 #ifndef JEMALLOC_INTERNAL_PH_H
 #define JEMALLOC_INTERNAL_PH_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
+#include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/bit_util.h"
+
 /*
  * A Pairing Heap implementation.
  *
@@ -73,7 +77,7 @@ struct ph_s {
 
 JEMALLOC_ALWAYS_INLINE phn_link_t *
 phn_link_get(void *phn, size_t offset) {
-	return (phn_link_t *)(((uintptr_t)phn) + offset);
+	return (phn_link_t *)(((char *)phn) + offset);
 }
 
 JEMALLOC_ALWAYS_INLINE void

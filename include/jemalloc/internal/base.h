@@ -1,6 +1,7 @@
 #ifndef JEMALLOC_INTERNAL_BASE_H
 #define JEMALLOC_INTERNAL_BASE_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/edata.h"
 #include "jemalloc/internal/ehooks.h"
 #include "jemalloc/internal/mutex.h"
@@ -23,7 +24,7 @@ typedef enum metadata_thp_mode_e metadata_thp_mode_t;
 
 #define METADATA_THP_DEFAULT metadata_thp_disabled
 extern metadata_thp_mode_t opt_metadata_thp;
-extern const char *metadata_thp_mode_names[];
+extern const char *const metadata_thp_mode_names[];
 
 
 /* Embedded at the beginning of every block of base-managed virtual memory. */

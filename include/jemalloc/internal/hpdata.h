@@ -1,7 +1,10 @@
 #ifndef JEMALLOC_INTERNAL_HPDATA_H
 #define JEMALLOC_INTERNAL_HPDATA_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/fb.h"
+#include "jemalloc/internal/nstime.h"
+#include "jemalloc/internal/pages.h"
 #include "jemalloc/internal/ph.h"
 #include "jemalloc/internal/ql.h"
 #include "jemalloc/internal/typed_list.h"
@@ -359,7 +362,7 @@ void hpdata_init(hpdata_t *hpdata, void *addr, uint64_t age);
  * offset within that allocation.
  */
 void *hpdata_reserve_alloc(hpdata_t *hpdata, size_t sz);
-void hpdata_unreserve(hpdata_t *hpdata, void *begin, size_t sz);
+void hpdata_unreserve(hpdata_t *hpdata, void *addr, size_t sz);
 
 /*
  * The hpdata_purge_prepare_t allows grabbing the metadata required to purge

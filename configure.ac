@@ -262,7 +262,6 @@ if test "x$GCC" = "xyes" ; then
   dnl This one too.
   JE_CFLAGS_ADD([-Wno-missing-field-initializers])
   JE_CFLAGS_ADD([-Wno-missing-attributes])
-  JE_CFLAGS_ADD([-Wstrict-prototypes])
   JE_CFLAGS_ADD([-pipe])
   JE_CFLAGS_ADD([-g3])
 elif test "x$je_cv_msvc" = "xyes" ; then
@@ -1106,7 +1105,7 @@ AC_ARG_WITH([export],
 fi]
 )
 
-public_syms="aligned_alloc calloc dallocx free mallctl mallctlbymib mallctlnametomib malloc malloc_conf malloc_conf_2_conf_harder malloc_message malloc_stats_print malloc_usable_size mallocx smallocx_${jemalloc_version_gid} nallocx posix_memalign rallocx realloc sallocx sdallocx xallocx"
+public_syms="aligned_alloc calloc dallocx free free_sized free_aligned_sized mallctl mallctlbymib mallctlnametomib malloc malloc_conf malloc_conf_2_conf_harder malloc_message malloc_stats_print malloc_usable_size mallocx smallocx_${jemalloc_version_gid} nallocx posix_memalign rallocx realloc sallocx sdallocx xallocx"
 dnl Check for additional platform-specific public API functions.
 AC_CHECK_FUNC([memalign],
 	      [AC_DEFINE([JEMALLOC_OVERRIDE_MEMALIGN], [ ], [ ])
@@ -1130,6 +1129,16 @@ if test "x${JEMALLOC_PREFIX}" = "x" ; then
   AC_CHECK_FUNC([__libc_free],
 		[AC_DEFINE([JEMALLOC_OVERRIDE___LIBC_FREE], [ ], [ ])
 		 wrap_syms="${wrap_syms} __libc_free"])
+  dnl __libc_free_sized and __libc_free_aligned_sized are here speculatively
+  dnl under the assumption that glibc will eventually define symbols with these
+  dnl names. In the event glibc chooses different names for these symbols,
+  dnl these will need to be amended to match.
+  AC_CHECK_FUNC([__libc_free_sized],
+		[AC_DEFINE([JEMALLOC_OVERRIDE___LIBC_FREE_SIZED], [ ], [ ])
+		 wrap_syms="${wrap_syms} __libc_free_sized"])
+  AC_CHECK_FUNC([__libc_free_aligned_sized],
+		[AC_DEFINE([JEMALLOC_OVERRIDE___LIBC_FREE_ALIGNED_SIZED], [ ], [ ])
+		 wrap_syms="${wrap_syms} __libc_free_aligned_sized"])
   AC_CHECK_FUNC([__libc_malloc],
 		[AC_DEFINE([JEMALLOC_OVERRIDE___LIBC_MALLOC], [ ], [ ])
 		 wrap_syms="${wrap_syms} __libc_malloc"])

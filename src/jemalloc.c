@@ -121,7 +121,7 @@ zero_realloc_action_t opt_zero_realloc_action =
 
 atomic_zu_t zero_realloc_count = ATOMIC_INIT(0);
 
-const char *zero_realloc_mode_names[] = {
+const char *const zero_realloc_mode_names[] = {
 	"alloc",
 	"free",
 	"abort",
@@ -142,8 +142,8 @@ static void default_junk_free(void *ptr, size_t usize) {
 	memset(ptr, junk_free_byte, usize);
 }
 
-void (*junk_alloc_callback)(void *ptr, size_t size) = &default_junk_alloc;
-void (*junk_free_callback)(void *ptr, size_t size) = &default_junk_free;
+void (*JET_MUTABLE junk_alloc_callback)(void *ptr, size_t size) = &default_junk_alloc;
+void (*JET_MUTABLE junk_free_callback)(void *ptr, size_t size) = &default_junk_free;
 
 bool	opt_utrace = false;
 bool	opt_xmalloc = false;
@@ -158,7 +158,7 @@ unsigned opt_debug_double_free_max_scan =
     SAFETY_CHECK_DOUBLE_FREE_MAX_SCAN_DEFAULT;
 
 /* Protects arenas initialization. */
-malloc_mutex_t arenas_lock;
+static malloc_mutex_t arenas_lock;
 
 /* The global hpa, and whether it's on. */
 bool opt_hpa = false;
@@ -2990,6 +2990,16 @@ je_free(void *ptr) {
 	LOG("core.free.exit", "");
 }
 
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+je_free_sized(void *ptr, size_t size) {
+	return je_sdallocx_noflags(ptr, size);
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+je_free_aligned_sized(void *ptr, size_t alignment, size_t size) {
+	return je_sdallocx(ptr, size, /* flags */ MALLOCX_ALIGN(alignment));
+}
+
 /*
  * End malloc(3)-compatible functions.
  */
@@ -3152,6 +3162,13 @@ void *__libc_calloc(size_t n, size_t size) PREALIAS(je_calloc);
 #    endif
 #    ifdef JEMALLOC_OVERRIDE___LIBC_FREE
 void __libc_free(void* ptr) PREALIAS(je_free);
+#    endif
+#    ifdef JEMALLOC_OVERRIDE___LIBC_FREE_SIZED
+void __libc_free_sized(void* ptr, size_t size) PREALIAS(je_free_sized);
+#    endif
+#    ifdef JEMALLOC_OVERRIDE___LIBC_FREE_ALIGNED_SIZED
+void __libc_free_aligned_sized(
+    void* ptr, size_t alignment, size_t size) PREALIAS(je_free_aligned_sized);
 #    endif
 #    ifdef JEMALLOC_OVERRIDE___LIBC_MALLOC
 void *__libc_malloc(size_t size) PREALIAS(je_malloc);
