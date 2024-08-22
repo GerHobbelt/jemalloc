@@ -156,12 +156,6 @@ struct prof_tdata_s {
 	 */
 	uint64_t		thr_discrim;
 
-	/* Included in heap profile dumps if non-NULL. */
-	char			*thread_name;
-
-	bool			attached;
-	bool			expired;
-
 	rb_node(prof_tdata_t)	tdata_link;
 
 	/*
@@ -178,6 +172,9 @@ struct prof_tdata_s {
 	 * may write to prof_tctx_t contents when freeing associated objects.
 	 */
 	ckh_t			bt2tctx;
+
+	/* Included in heap profile dumps if has content. */
+	char			thread_name[PROF_THREAD_NAME_MAX_LEN];
 
 	/* State used to avoid dumping while operating on prof internals. */
 	bool			enq;
@@ -197,6 +194,9 @@ struct prof_tdata_s {
 	 * (thread.prof.active mallctl).
 	 */
 	bool			active;
+
+	bool			attached;
+	bool			expired;
 
 	/* Temporary storage for summation during dump. */
 	prof_cnt_t		cnt_summed;
