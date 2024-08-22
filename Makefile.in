@@ -155,6 +155,7 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/thread_event.c \
 	$(srcroot)src/ticker.c \
 	$(srcroot)src/tsd.c \
+	$(srcroot)src/util.c \
 	$(srcroot)src/witness.c
 ifeq ($(enable_zone_allocator), 1)
 C_SRCS += $(srcroot)src/zone.c
@@ -241,6 +242,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/mq.c \
 	$(srcroot)test/unit/mtx.c \
 	$(srcroot)test/unit/nstime.c \
+	$(srcroot)test/unit/ncached_max.c \
 	$(srcroot)test/unit/oversize_threshold.c \
 	$(srcroot)test/unit/pa.c \
 	$(srcroot)test/unit/pack.c \

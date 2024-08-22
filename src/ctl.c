@@ -68,6 +68,8 @@ CTL_PROTO(max_background_threads)
 CTL_PROTO(thread_tcache_enabled)
 CTL_PROTO(thread_tcache_max)
 CTL_PROTO(thread_tcache_flush)
+CTL_PROTO(thread_tcache_ncached_max_write)
+CTL_PROTO(thread_tcache_ncached_max_read_sizeclass)
 CTL_PROTO(thread_peak_read)
 CTL_PROTO(thread_peak_reset)
 CTL_PROTO(thread_prof_name)
@@ -294,6 +296,8 @@ CTL_PROTO(stats_arenas_i_muzzy_nmadvise)
 CTL_PROTO(stats_arenas_i_muzzy_purged)
 CTL_PROTO(stats_arenas_i_base)
 CTL_PROTO(stats_arenas_i_internal)
+CTL_PROTO(stats_arenas_i_metadata_edata)
+CTL_PROTO(stats_arenas_i_metadata_rtree)
 CTL_PROTO(stats_arenas_i_metadata_thp)
 CTL_PROTO(stats_arenas_i_tcache_bytes)
 CTL_PROTO(stats_arenas_i_tcache_stashed_bytes)
@@ -307,6 +311,8 @@ CTL_PROTO(stats_background_thread_num_threads)
 CTL_PROTO(stats_background_thread_num_runs)
 CTL_PROTO(stats_background_thread_run_interval)
 CTL_PROTO(stats_metadata)
+CTL_PROTO(stats_metadata_edata)
+CTL_PROTO(stats_metadata_rtree)
 CTL_PROTO(stats_metadata_thp)
 CTL_PROTO(stats_resident)
 CTL_PROTO(stats_mapped)
@@ -370,10 +376,17 @@ CTL_PROTO(stats_mutexes_reset)
  */
 #define INDEX(i)	{false},	i##_index
 
+static const ctl_named_node_t	thread_tcache_ncached_max_node[] = {
+	{NAME("read_sizeclass"),
+	    CTL(thread_tcache_ncached_max_read_sizeclass)},
+	{NAME("write"),		CTL(thread_tcache_ncached_max_write)}
+};
+
 static const ctl_named_node_t	thread_tcache_node[] = {
 	{NAME("enabled"),	CTL(thread_tcache_enabled)},
 	{NAME("max"),		CTL(thread_tcache_max)},
-	{NAME("flush"),		CTL(thread_tcache_flush)}
+	{NAME("flush"),		CTL(thread_tcache_flush)},
+	{NAME("ncached_max"),	CHILD(named, thread_tcache_ncached_max)}
 };
 
 static const ctl_named_node_t	thread_peak_node[] = {
@@ -801,6 +814,8 @@ static const ctl_named_node_t stats_arenas_i_node[] = {
 	{NAME("muzzy_purged"),	CTL(stats_arenas_i_muzzy_purged)},
 	{NAME("base"),		CTL(stats_arenas_i_base)},
 	{NAME("internal"),	CTL(stats_arenas_i_internal)},
+	{NAME("metadata_edata"),	CTL(stats_arenas_i_metadata_edata)},
+	{NAME("metadata_rtree"),	CTL(stats_arenas_i_metadata_rtree)},
 	{NAME("metadata_thp"),	CTL(stats_arenas_i_metadata_thp)},
 	{NAME("tcache_bytes"),	CTL(stats_arenas_i_tcache_bytes)},
 	{NAME("tcache_stashed_bytes"),
@@ -846,6 +861,8 @@ static const ctl_named_node_t stats_node[] = {
 	{NAME("allocated"),	CTL(stats_allocated)},
 	{NAME("active"),	CTL(stats_active)},
 	{NAME("metadata"),	CTL(stats_metadata)},
+	{NAME("metadata_edata"),	CTL(stats_metadata_edata)},
+	{NAME("metadata_rtree"),	CTL(stats_metadata_rtree)},
 	{NAME("metadata_thp"),	CTL(stats_metadata_thp)},
 	{NAME("resident"),	CTL(stats_resident)},
 	{NAME("mapped"),	CTL(stats_mapped)},
@@ -1138,6 +1155,10 @@ MUTEX_PROF_ARENA_MUTEXES
 #undef OP
 		if (!destroyed) {
 			sdstats->astats.base += astats->astats.base;
+			sdstats->astats.metadata_edata += astats->astats
+			    .metadata_edata;
+			sdstats->astats.metadata_rtree += astats->astats
+			    .metadata_rtree;
 			sdstats->astats.resident += astats->astats.resident;
 			sdstats->astats.metadata_thp += astats->astats.metadata_thp;
 			ctl_accum_atomic_zu(&sdstats->astats.internal,
@@ -1341,6 +1362,10 @@ ctl_refresh(tsdn_t *tsdn) {
 		ctl_stats->metadata = ctl_sarena->astats->astats.base +
 		    atomic_load_zu(&ctl_sarena->astats->astats.internal,
 			ATOMIC_RELAXED);
+		ctl_stats->metadata_edata = ctl_sarena->astats->astats
+		    .metadata_edata;
+		ctl_stats->metadata_rtree = ctl_sarena->astats->astats
+		    .metadata_rtree;
 		ctl_stats->resident = ctl_sarena->astats->astats.resident;
 		ctl_stats->metadata_thp =
 		    ctl_sarena->astats->astats.metadata_thp;
@@ -2266,6 +2291,78 @@ label_return:
 
 CTL_RO_NL_GEN(thread_allocated, tsd_thread_allocated_get(tsd), uint64_t)
 CTL_RO_NL_GEN(thread_allocatedp, tsd_thread_allocatedp_get(tsd), uint64_t *)
+
+static int
+thread_tcache_ncached_max_read_sizeclass_ctl(tsd_t *tsd, const size_t *mib,
+    size_t miblen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen) {
+	int ret;
+	size_t bin_size = 0;
+
+	/* Read the bin size from newp. */
+	if (newp == NULL) {
+		ret = EINVAL;
+		goto label_return;
+	}
+	WRITE(bin_size, size_t);
+
+	cache_bin_sz_t ncached_max = 0;
+	if (tcache_bin_ncached_max_read(tsd, bin_size, &ncached_max)) {
+		ret = EINVAL;
+		goto label_return;
+	}
+	size_t result = (size_t)ncached_max;
+	READ(result, size_t);
+	ret = 0;
+label_return:
+	return ret;
+}
+
+static int
+thread_tcache_ncached_max_write_ctl(tsd_t *tsd, const size_t *mib,
+    size_t miblen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen) {
+	int ret;
+	WRITEONLY();
+	if (newp != NULL) {
+		if (!tcache_available(tsd)) {
+			ret = ENOENT;
+			goto label_return;
+		}
+		char *settings = NULL;
+		WRITE(settings, char *);
+		if (settings == NULL) {
+			ret = EINVAL;
+			goto label_return;
+		}
+		/* Get the length of the setting string safely. */
+		char *end = (char *)memchr(settings, '\0',
+		    CTL_MULTI_SETTING_MAX_LEN);
+		if (end == NULL) {
+			ret = EINVAL;
+			goto label_return;
+		}
+		/*
+		 * Exclude the last '\0' for len since it is not handled by
+		 * multi_setting_parse_next.
+		 */
+		size_t len = (uintptr_t)end - (uintptr_t)settings;
+		if (len == 0) {
+			ret = 0;
+			goto label_return;
+		}
+
+		if (tcache_bins_ncached_max_write(tsd, settings, len)) {
+			ret = EINVAL;
+			goto label_return;
+		}
+	}
+
+	ret = 0;
+label_return:
+	return ret;
+}
+
 CTL_RO_NL_GEN(thread_deallocated, tsd_thread_deallocated_get(tsd), uint64_t)
 CTL_RO_NL_GEN(thread_deallocatedp, tsd_thread_deallocatedp_get(tsd), uint64_t *)
 
@@ -2301,7 +2398,7 @@ thread_tcache_max_ctl(tsd_t *tsd, const size_t *mib,
 	/* pointer to tcache_t always exists even with tcache disabled. */
 	tcache_t *tcache = tsd_tcachep_get(tsd);
 	assert(tcache != NULL);
-	oldval = tcache_max_get(tcache);
+	oldval = tcache_max_get(tcache->tcache_slow);
 	READ(oldval, size_t);
 
 	if (newp != NULL) {
@@ -2316,7 +2413,7 @@ thread_tcache_max_ctl(tsd_t *tsd, const size_t *mib,
 		}
 		new_tcache_max = sz_s2u(new_tcache_max);
 		if(new_tcache_max != oldval) {
-			thread_tcache_max_and_nhbins_set(tsd, new_tcache_max);
+			thread_tcache_max_set(tsd, new_tcache_max);
 		}
 	}
 
@@ -3139,7 +3236,7 @@ CTL_RO_NL_GEN(arenas_quantum, QUANTUM, size_t)
 CTL_RO_NL_GEN(arenas_page, PAGE, size_t)
 CTL_RO_NL_GEN(arenas_tcache_max, global_do_not_change_tcache_maxclass, size_t)
 CTL_RO_NL_GEN(arenas_nbins, SC_NBINS, unsigned)
-CTL_RO_NL_GEN(arenas_nhbins, global_do_not_change_nhbins, unsigned)
+CTL_RO_NL_GEN(arenas_nhbins, global_do_not_change_tcache_nbins, unsigned)
 CTL_RO_NL_GEN(arenas_bin_i_size, bin_infos[mib[2]].reg_size, size_t)
 CTL_RO_NL_GEN(arenas_bin_i_nregs, bin_infos[mib[2]].nregs, uint32_t)
 CTL_RO_NL_GEN(arenas_bin_i_slab_size, bin_infos[mib[2]].slab_size, size_t)
@@ -3599,6 +3696,10 @@ label_return:
 CTL_RO_CGEN(config_stats, stats_allocated, ctl_stats->allocated, size_t)
 CTL_RO_CGEN(config_stats, stats_active, ctl_stats->active, size_t)
 CTL_RO_CGEN(config_stats, stats_metadata, ctl_stats->metadata, size_t)
+CTL_RO_CGEN(config_stats, stats_metadata_edata, ctl_stats->metadata_edata,
+    size_t)
+CTL_RO_CGEN(config_stats, stats_metadata_rtree, ctl_stats->metadata_rtree,
+    size_t)
 CTL_RO_CGEN(config_stats, stats_metadata_thp, ctl_stats->metadata_thp, size_t)
 CTL_RO_CGEN(config_stats, stats_resident, ctl_stats->resident, size_t)
 CTL_RO_CGEN(config_stats, stats_mapped, ctl_stats->mapped, size_t)
@@ -3664,6 +3765,10 @@ CTL_RO_CGEN(config_stats, stats_arenas_i_base,
 CTL_RO_CGEN(config_stats, stats_arenas_i_internal,
     atomic_load_zu(&arenas_i(mib[2])->astats->astats.internal, ATOMIC_RELAXED),
     size_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_metadata_edata,
+    arenas_i(mib[2])->astats->astats.metadata_edata, size_t)
+CTL_RO_CGEN(config_stats, stats_arenas_i_metadata_rtree,
+    arenas_i(mib[2])->astats->astats.metadata_rtree, size_t)
 CTL_RO_CGEN(config_stats, stats_arenas_i_metadata_thp,
     arenas_i(mib[2])->astats->astats.metadata_thp, size_t)
 CTL_RO_CGEN(config_stats, stats_arenas_i_tcache_bytes,
