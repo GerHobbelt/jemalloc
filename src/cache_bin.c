@@ -12,7 +12,7 @@ cache_bin_info_init(cache_bin_info_t *info,
     cache_bin_sz_t ncached_max) {
 	assert(ncached_max <= CACHE_BIN_NCACHED_MAX);
 	size_t stack_size = (size_t)ncached_max * sizeof(void *);
-	assert(stack_size <= UINT16_MAX);
+	assert(stack_size < ((size_t)1 << (sizeof(cache_bin_sz_t) * 8)));
 	info->ncached_max = (cache_bin_sz_t)ncached_max;
 }
 
@@ -100,7 +100,7 @@ cache_bin_init(cache_bin_t *bin, const cache_bin_info_t *info, void *alloc,
 	    bin->low_bits_full, (uint16_t)(uintptr_t)bin->stack_head);
 	assert(free_spots == bin_stack_size);
 	if (!cache_bin_disabled(bin)) {
-		assert(cache_bin_ncached_get_local(bin, &bin->bin_info) == 0);
+		assert(cache_bin_ncached_get_local(bin) == 0);
 	}
 	assert(cache_bin_empty_position_get(bin) == empty_position);
 

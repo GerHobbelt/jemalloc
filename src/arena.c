@@ -168,8 +168,7 @@ arena_stats_merge(tsdn_t *tsdn, arena_t *arena, unsigned *nthreads,
 			}
 
 			cache_bin_sz_t ncached, nstashed;
-			cache_bin_nitems_get_remote(cache_bin,
-			    &cache_bin->bin_info, &ncached, &nstashed);
+			cache_bin_nitems_get_remote(cache_bin, &ncached, &nstashed);
 			astats->tcache_bytes += ncached * sz_index2size(i);
 			astats->tcache_stashed_bytes += nstashed *
 			    sz_index2size(i);
@@ -1020,16 +1019,14 @@ arena_bin_choose(tsdn_t *tsdn, arena_t *arena, szind_t binind,
 
 void
 arena_cache_bin_fill_small(tsdn_t *tsdn, arena_t *arena,
-    cache_bin_t *cache_bin, cache_bin_info_t *cache_bin_info, szind_t binind,
-    const unsigned nfill) {
-	assert(cache_bin_ncached_get_local(cache_bin, cache_bin_info) == 0);
+    cache_bin_t *cache_bin, szind_t binind, const cache_bin_sz_t nfill) {
+	assert(cache_bin_ncached_get_local(cache_bin) == 0);
 	assert(nfill != 0);
 
 	const bin_info_t *bin_info = &bin_infos[binind];
 
 	CACHE_BIN_PTR_ARRAY_DECLARE(ptrs, nfill);
-	cache_bin_init_ptr_array_for_fill(cache_bin, cache_bin_info, &ptrs,
-	    nfill);
+	cache_bin_init_ptr_array_for_fill(cache_bin, &ptrs, nfill);
 	/*
 	 * Bin-local resources are used first: 1) bin->slabcur, and 2) nonfull
 	 * slabs.  After both are exhausted, new slabs will be allocated through
@@ -1059,7 +1056,7 @@ arena_cache_bin_fill_small(tsdn_t *tsdn, arena_t *arena,
 	bool made_progress = true;
 	edata_t *fresh_slab = NULL;
 	bool alloc_and_retry = false;
-	unsigned filled = 0;
+	cache_bin_sz_t filled = 0;
 	unsigned binshard;
 	bin_t *bin = arena_bin_choose(tsdn, arena, binind, &binshard);
 
@@ -1143,7 +1140,7 @@ label_refill:
 		fresh_slab = NULL;
 	}
 
-	cache_bin_finish_fill(cache_bin, cache_bin_info, &ptrs, filled);
+	cache_bin_finish_fill(cache_bin, &ptrs, filled);
 	arena_decay_tick(tsdn, arena);
 }
 
@@ -1666,11 +1663,16 @@ arena_new(tsdn_t *tsdn, unsigned ind, const arena_config_t *config) {
 		}
 	}
 
-	size_t arena_size = sizeof(arena_t) + sizeof(bin_t) * nbins_total;
+	size_t arena_size = ALIGNMENT_CEILING(sizeof(arena_t), CACHELINE) +
+	    sizeof(bin_t) * nbins_total;
 	arena = (arena_t *)base_alloc(tsdn, base, arena_size, CACHELINE);
 	if (arena == NULL) {
 		goto label_error;
 	}
+	JEMALLOC_SUPPRESS_WARN_ON_USAGE(
+	assert((uintptr_t)&arena->all_bins[nbins_total -1] + sizeof(bin_t) <=
+	    (uintptr_t)arena + arena_size);
+	)
 
 	atomic_store_u(&arena->nthreads[0], 0, ATOMIC_RELAXED);
 	atomic_store_u(&arena->nthreads[1], 0, ATOMIC_RELAXED);
