@@ -988,6 +988,30 @@ if test "x${je_cv_cold}" = "xyes" ; then
   AC_DEFINE([JEMALLOC_HAVE_ATTR_COLD], [ ], [ ])
 fi
 
+dnl Check for deprecated attribute support.
+JE_CFLAGS_SAVE()
+JE_CFLAGS_ADD([-Wdeprecated-declarations])
+JE_COMPILABLE([deprecated attribute],
+              [#if !__has_attribute(deprecated)
+               #error "deprecated attribute not supported"
+               #endif
+               struct has_deprecated_field {
+                   int good;
+                   int __attribute__((deprecated("Do not use"))) bad;
+               };
+              ],
+              [struct has_deprecated_field instance;
+               instance.good = 0;
+               instance.bad = 1;
+              ],
+              [je_cv_deprecated])
+JE_CFLAGS_RESTORE()
+if test "x${je_cv_deprecated}" = "xyes" ; then
+  AC_DEFINE([JEMALLOC_HAVE_ATTR_DEPRECATED], [ ], [ ])
+  JE_CFLAGS_ADD([-Wdeprecated-declarations])
+  JE_CXXFLAGS_ADD([-Wdeprecated-declarations])
+fi
+
 dnl Check for VM_MAKE_TAG for mmap support.
 JE_COMPILABLE([vm_make_tag],
 	      [#include <sys/mman.h>
@@ -1469,6 +1493,18 @@ if test "x$zero_realloc_default_free" = "x1" ; then
   AC_DEFINE([JEMALLOC_ZERO_REALLOC_DEFAULT_FREE], [ ], [ ])
 fi
 
+dnl Support allocation from DSS by default
+AC_ARG_ENABLE([dss],
+  [AS_HELP_STRING([--disable-dss], [Disable usage of sbrk(2)])],
+[if test "x$enable_dss" = "xno" ; then
+  enable_dss="0"
+else
+  enable_dss="1"
+fi
+],
+[enable_dss="1"]
+)
+
 dnl Enable allocation from DSS if supported by the OS.
 have_dss="1"
 dnl Check whether the BSD/SUSv1 sbrk() exists.  If not, disable DSS support.
@@ -1482,7 +1518,7 @@ else
   have_dss="0"
 fi
 
-if test "x$have_dss" = "x1" ; then
+if test "x$have_dss" = "x1" -a "x$enable_dss" = "x1" ; then
   AC_DEFINE([JEMALLOC_DSS], [ ], [ ])
 fi
 
@@ -2791,4 +2827,5 @@ AC_MSG_RESULT([lazy_lock          : ${enable_lazy_lock}])
 AC_MSG_RESULT([cache-oblivious    : ${enable_cache_oblivious}])
 AC_MSG_RESULT([pageid             : ${enable_pageid}])
 AC_MSG_RESULT([cxx                : ${enable_cxx}])
+AC_MSG_RESULT([dss                : ${enable_dss}])
 AC_MSG_RESULT([===============================================================================])
