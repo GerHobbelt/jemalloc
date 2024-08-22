@@ -33,7 +33,7 @@
 /* Data. */
 
 /* Actual operating system page size, detected during bootstrap, <= PAGE. */
-static size_t	os_page;
+size_t	os_page;
 
 #ifndef _WIN32
 #  define PAGES_PROT_COMMIT (PROT_READ | PROT_WRITE)
@@ -66,7 +66,7 @@ static int madvise_dont_need_zeros_is_faulty = -1;
  *
  *   [1]: https://patchwork.kernel.org/patch/10576637/
  */
-static int madvise_MADV_DONTNEED_zeroes_pages()
+static int madvise_MADV_DONTNEED_zeroes_pages(void)
 {
 	size_t size = PAGE;
 

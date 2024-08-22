@@ -407,6 +407,7 @@ extent_recycle_extract(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
 		edata = emap_try_acquire_edata_neighbor_expand(tsdn, pac->emap,
 		    expand_edata, EXTENT_PAI_PAC, ecache->state);
 		if (edata != NULL) {
+			/* NOLINTNEXTLINE(readability-suspicious-call-argument) */
 			extent_assert_can_expand(expand_edata, edata);
 			if (edata_size_get(edata) < size) {
 				emap_release_edata(tsdn, pac->emap, edata,
@@ -943,6 +944,7 @@ extent_record(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks, ecache_t *ecache,
 		} while (coalesced);
 		if (edata_size_get(edata) >=
 		    atomic_load_zu(&pac->oversize_threshold, ATOMIC_RELAXED)
+		    && !background_thread_enabled()
 		    && extent_may_force_decay(pac)) {
 			/* Shortcut to purge the oversize extent eagerly. */
 			malloc_mutex_unlock(tsdn, &ecache->mtx);

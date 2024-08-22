@@ -262,6 +262,7 @@ if test "x$GCC" = "xyes" ; then
   dnl This one too.
   JE_CFLAGS_ADD([-Wno-missing-field-initializers])
   JE_CFLAGS_ADD([-Wno-missing-attributes])
+  JE_CFLAGS_ADD([-Wstrict-prototypes])
   JE_CFLAGS_ADD([-pipe])
   JE_CFLAGS_ADD([-g3])
 elif test "x$je_cv_msvc" = "xyes" ; then
@@ -2501,7 +2502,7 @@ AC_SUBST([enable_initial_exec_tls])
 if test "x${je_cv_tls_model}" = "xyes" -a \
        "x${enable_initial_exec_tls}" = "x1" ; then
   AC_DEFINE([JEMALLOC_TLS_MODEL],
-            [__attribute__((tls_model("initial-exec")))], 
+            [__attribute__((tls_model("initial-exec")))],
             [ ])
 else
   AC_DEFINE([JEMALLOC_TLS_MODEL], [ ], [ ])
