@@ -254,7 +254,9 @@ tcache_alloc_small_hard(tsdn_t *tsdn, arena_t *arena,
 	if (nfill == 0) {
 		nfill = 1;
 	}
-	arena_cache_bin_fill_small(tsdn, arena, cache_bin, binind, nfill);
+	arena_cache_bin_fill_small(tsdn, arena, cache_bin, binind,
+	    /* nfill_min */ opt_experimental_tcache_gc ?
+	    ((nfill >> 1) + 1) : nfill, /* nfill_max */ nfill);
 	tcache_slow->bin_refilled[binind] = true;
 	ret = cache_bin_alloc(cache_bin, tcache_success);
 
@@ -1208,7 +1210,7 @@ thread_tcache_max_set(tsd_t *tsd, size_t tcache_max) {
 	assert(tcache != NULL && tcache_slow != NULL);
 
 	bool enabled = tcache_available(tsd);
-	arena_t *assigned_arena;
+	arena_t *assigned_arena JEMALLOC_CLANG_ANALYZER_SILENCE_INIT(NULL);
 	if (enabled) {
 		assigned_arena = tcache_slow->arena;
 		/* Carry over the bin settings during the reboot. */
