@@ -985,44 +985,53 @@ obtain_malloc_conf(unsigned which_source, char readlink_buf[PATH_MAX + 1]) {
 		}
 		break;
 	case 2: {
+#ifndef JEMALLOC_CONFIG_FILE
+		ret = NULL;
+		break;
+#else
 		ssize_t linklen = 0;
-#ifndef _WIN32
+#  ifndef _WIN32
 		int saved_errno = errno;
 		const char *linkname =
-#  ifdef JEMALLOC_PREFIX
+#    ifdef JEMALLOC_PREFIX
 		    "/etc/"JEMALLOC_PREFIX"malloc.conf"
-#  else
+#    else
 		    "/etc/malloc.conf"
-#  endif
+#    endif
 		    ;
 
 		/*
 		 * Try to use the contents of the "/etc/malloc.conf" symbolic
 		 * link's name.
 		 */
-#ifndef JEMALLOC_READLINKAT
+#    ifndef JEMALLOC_READLINKAT
 		linklen = readlink(linkname, readlink_buf, PATH_MAX);
-#else
+#    else
 		linklen = readlinkat(AT_FDCWD, linkname, readlink_buf, PATH_MAX);
-#endif
+#    endif
 		if (linklen == -1) {
 			/* No configuration specified. */
 			linklen = 0;
 			/* Restore errno. */
 			set_errno(saved_errno);
 		}
-#endif
+#  endif
 		readlink_buf[linklen] = '\0';
 		ret = readlink_buf;
 		break;
-	} case 3: {
-		const char *envname =
-#ifdef JEMALLOC_PREFIX
-		    JEMALLOC_CPREFIX"MALLOC_CONF"
-#else
-		    "MALLOC_CONF"
 #endif
-		    ;
+	} case 3: {
+#ifndef JEMALLOC_CONFIG_ENV
+		ret = NULL;
+		break;
+#else
+		const char *envname =
+#  ifdef JEMALLOC_PREFIX
+			JEMALLOC_CPREFIX"MALLOC_CONF"
+#  else
+			"MALLOC_CONF"
+#  endif
+			;
 
 		if ((ret = jemalloc_getenv(envname)) != NULL) {
 			opt_malloc_conf_env_var = ret;
@@ -1031,6 +1040,7 @@ obtain_malloc_conf(unsigned which_source, char readlink_buf[PATH_MAX + 1]) {
 			ret = NULL;
 		}
 		break;
+#endif
 	} case 4: {
 		ret = je_malloc_conf_2_conf_harder;
 		break;
@@ -1954,13 +1964,6 @@ malloc_init_hard_a0_locked(void) {
 		} else {
 			opt_hpa = false;
 		}
-	} else if (opt_hpa) {
-		hpa_shard_opts_t hpa_shard_opts = opt_hpa_opts;
-		hpa_shard_opts.deferral_allowed = background_thread_enabled();
-		if (pa_shard_enable_hpa(TSDN_NULL, &a0->pa_shard,
-		    &hpa_shard_opts, &opt_hpa_sec_opts)) {
-			return true;
-		}
 	}
 
 	malloc_init_state = malloc_init_a0_initialized;
@@ -2214,6 +2217,20 @@ malloc_init_hard(void) {
 	if (malloc_init_narenas()
 	    || background_thread_boot1(tsd_tsdn(tsd), b0get())) {
 		UNLOCK_RETURN(tsd_tsdn(tsd), true, true)
+	}
+	if (opt_hpa) {
+		/*
+		 * We didn't initialize arena 0 hpa_shard in arena_new, because
+		 * background_thread_enabled wasn't initialized yet, but we
+		 * need it to set correct value for deferral_allowed.
+		 */
+		arena_t *a0 = arena_get(tsd_tsdn(tsd), 0, false);
+		hpa_shard_opts_t hpa_shard_opts = opt_hpa_opts;
+		hpa_shard_opts.deferral_allowed = background_thread_enabled();
+		if (pa_shard_enable_hpa(tsd_tsdn(tsd), &a0->pa_shard,
+		    &hpa_shard_opts, &opt_hpa_sec_opts)) {
+			UNLOCK_RETURN(tsd_tsdn(tsd), true, true)
+		}
 	}
 	if (config_prof && prof_boot2(tsd, b0get())) {
 		UNLOCK_RETURN(tsd_tsdn(tsd), true, true)
