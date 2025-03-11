@@ -39,11 +39,14 @@
 #  define unlikely(x) !!(x)
 #endif
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#include <stddef.h>
+#else
 #if !defined(JEMALLOC_INTERNAL_UNREACHABLE)
 #  error JEMALLOC_INTERNAL_UNREACHABLE should have been defined by configure
 #endif
-
 #define unreachable() JEMALLOC_INTERNAL_UNREACHABLE()
+#endif
 
 /* Set error code. */
 UTIL_INLINE void
