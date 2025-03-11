@@ -2544,6 +2544,17 @@ if test "x${je_cv_madvise}" = "xyes" ; then
   if test "x${je_cv_madv_collapse}" = "xyes" ; then
     AC_DEFINE([JEMALLOC_HAVE_MADVISE_COLLAPSE], [ ], [ ])
   fi
+
+  dnl Check for process_madvise
+  JE_COMPILABLE([process_madvise(2)], [
+#include <sys/mman.h>
+#include <sys/syscall.h>
+], [
+	syscall(SYS_process_madvise, 0, (void *)0, 0, 0, 0);
+], [je_cv_process_madvise])
+  if test "x${je_cv_process_madvise}" = "xyes" ; then
+    AC_DEFINE([JEMALLOC_HAVE_PROCESS_MADVISE], [ ], [ ])
+  fi
 else
   dnl Check for posix_madvise.
   JE_COMPILABLE([posix_madvise], [
@@ -2731,6 +2742,24 @@ if test "x${have_pthread}" = "x1" -a "x${je_cv_os_unfair_lock}" != "xyes" -a \
        "x${abi}" != "xmacho" ; then
   AC_DEFINE([JEMALLOC_BACKGROUND_THREAD], [ ], [ ])
 fi
+
+dnl ============================================================================
+dnl Limit the gap between two contiguous usizes to be at most PAGE.
+AC_ARG_ENABLE([limit_usize_gap],
+  [AS_HELP_STRING([--enable-limit-usize-gap],
+                  [Limit the gap between two contiguous usizes])],
+[if test "x$limit_usize_gap" = "xno" ; then
+  limit_usize_gap="0"
+else
+  limit_usize_gap="1"
+fi
+],
+[limit_usize_gap="0"]
+)
+if test "x$limit_usize_gap" = "x1" ; then
+  AC_DEFINE([LIMIT_USIZE_GAP], [ ])
+fi
+AC_SUBST([limit_usize_gap])
 
 dnl ============================================================================
 dnl Check for glibc malloc hooks
@@ -2997,4 +3026,5 @@ AC_MSG_RESULT([cxx                : ${enable_cxx}])
 AC_MSG_RESULT([dss                : ${enable_dss}])
 AC_MSG_RESULT([tsan               : ${enable_tsan}])
 AC_MSG_RESULT([ubsan              : ${enable_ubsan}])
+AC_MSG_RESULT([limit-usize-gap    : ${limit_usize_gap}])
 AC_MSG_RESULT([===============================================================================])

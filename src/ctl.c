@@ -168,6 +168,8 @@ CTL_PROTO(opt_prof_sys_thread_name)
 CTL_PROTO(opt_prof_time_res)
 CTL_PROTO(opt_lg_san_uaf_align)
 CTL_PROTO(opt_zero_realloc)
+CTL_PROTO(opt_limit_usize_gap)
+CTL_PROTO(opt_process_madvise_max_batch)
 CTL_PROTO(opt_malloc_conf_symlink)
 CTL_PROTO(opt_malloc_conf_env_var)
 CTL_PROTO(opt_malloc_conf_global_var)
@@ -557,6 +559,8 @@ static const ctl_named_node_t opt_node[] = {
 	{NAME("zero_realloc"),	CTL(opt_zero_realloc)},
 	{NAME("debug_double_free_max_scan"),
 		CTL(opt_debug_double_free_max_scan)},
+	{NAME("limit_usize_gap"),	CTL(opt_limit_usize_gap)},
+	{NAME("process_madvise_max_batch"), CTL(opt_process_madvise_max_batch)},
 	{NAME("malloc_conf"),	CHILD(named, opt_malloc_conf)}
 };
 
@@ -2314,6 +2318,8 @@ CTL_RO_NL_GEN(opt_lg_tcache_flush_large_div, opt_lg_tcache_flush_large_div,
 CTL_RO_NL_GEN(opt_thp, thp_mode_names[opt_thp], const char *)
 CTL_RO_NL_GEN(opt_lg_extent_max_active_fit, opt_lg_extent_max_active_fit,
     size_t)
+CTL_RO_NL_GEN(opt_process_madvise_max_batch, opt_process_madvise_max_batch,
+    size_t)
 CTL_RO_NL_CGEN(config_prof, opt_prof, opt_prof, bool)
 CTL_RO_NL_CGEN(config_prof, opt_prof_prefix, opt_prof_prefix, const char *)
 CTL_RO_NL_CGEN(config_prof, opt_prof_active, opt_prof_active, bool)
@@ -2341,6 +2347,8 @@ CTL_RO_NL_CGEN(config_uaf_detection, opt_lg_san_uaf_align,
     opt_lg_san_uaf_align, ssize_t)
 CTL_RO_NL_GEN(opt_zero_realloc,
     zero_realloc_mode_names[opt_zero_realloc_action], const char *)
+CTL_RO_NL_CGEN(config_limit_usize_gap, opt_limit_usize_gap, opt_limit_usize_gap,
+    bool)
 
 /* malloc_conf options */
 CTL_RO_NL_CGEN(opt_malloc_conf_symlink, opt_malloc_conf_symlink,
@@ -3364,8 +3372,8 @@ arenas_bin_i_index(tsdn_t *tsdn, const size_t *mib,
 }
 
 CTL_RO_NL_GEN(arenas_nlextents, SC_NSIZES - SC_NBINS, unsigned)
-CTL_RO_NL_GEN(arenas_lextent_i_size, sz_index2size(SC_NBINS+(szind_t)mib[2]),
-    size_t)
+CTL_RO_NL_GEN(arenas_lextent_i_size,
+    sz_index2size_unsafe(SC_NBINS+(szind_t)mib[2]), size_t)
 static const ctl_named_node_t *
 arenas_lextent_i_index(tsdn_t *tsdn, const size_t *mib,
     size_t miblen, size_t i) {

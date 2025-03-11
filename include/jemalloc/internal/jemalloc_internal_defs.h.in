@@ -345,6 +345,9 @@
  */
 #undef JEMALLOC_MADVISE_NOCORE
 
+/* Defined if process_madvise(2) is available. */
+#undef JEMALLOC_HAVE_PROCESS_MADVISE
+
 /* Defined if mprotect(2) is available. */
 #undef JEMALLOC_HAVE_MPROTECT
 
@@ -474,6 +477,12 @@
 
 /* If defined, use __int128 for optimization. */
 #undef JEMALLOC_HAVE_INT128
+
+/*
+ * If defined, the gap between any two contiguous usizes should not exceed
+ * PAGE.
+ */
+#undef LIMIT_USIZE_GAP
 
 #include "jemalloc/internal/jemalloc_internal_overrides.h"
 
