@@ -2471,6 +2471,16 @@ if test "x${je_cv_madvise}" = "xyes" ; then
 	madvise((void *)0, 0, MADV_HUGEPAGE);
 	madvise((void *)0, 0, MADV_NOHUGEPAGE);
 ], [je_cv_thp])
+  case "${host_cpu}" in
+    arm*)
+      ;;
+    *)
+    if test "x${je_cv_thp}" = "xyes" ; then
+      AC_DEFINE([JEMALLOC_HAVE_MADVISE_HUGE], [ ], [ ])
+    fi
+    ;;
+  esac
+
   dnl Check for madvise(..., MADV_[NO]CORE).
   JE_COMPILABLE([madvise(..., MADV_[[NO]]CORE)], [
 #include <sys/mman.h>
@@ -2481,15 +2491,16 @@ if test "x${je_cv_madvise}" = "xyes" ; then
   if test "x${je_cv_madv_nocore}" = "xyes" ; then
     AC_DEFINE([JEMALLOC_MADVISE_NOCORE], [ ], [ ])
   fi
-case "${host_cpu}" in
-  arm*)
-    ;;
-  *)
-  if test "x${je_cv_thp}" = "xyes" ; then
-    AC_DEFINE([JEMALLOC_HAVE_MADVISE_HUGE], [ ], [ ])
+
+  dnl Check for madvise(..., MADV_COLLAPSE).
+  JE_COMPILABLE([madvise(..., MADV_COLLAPSE)], [
+#include <sys/mman.h>
+], [
+	madvise((void *)0, 0, MADV_COLLAPSE);
+], [je_cv_madv_collapse])
+  if test "x${je_cv_madv_collapse}" = "xyes" ; then
+    AC_DEFINE([JEMALLOC_HAVE_MADVISE_COLLAPSE], [ ], [ ])
   fi
-  ;;
-esac
 else
   dnl Check for posix_madvise.
   JE_COMPILABLE([posix_madvise], [
