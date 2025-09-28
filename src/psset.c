@@ -337,7 +337,7 @@ psset_update_end(psset_t *psset, hpdata_t *ps) {
 	hpdata_assert_consistent(ps);
 }
 
-hpdata_t *
+static hpdata_t *
 psset_enumerate_search(psset_t *psset, pszind_t pind, size_t size) {
 	if (hpdata_age_heap_empty(&psset->pageslabs[pind])) {
 		return NULL;
@@ -368,7 +368,7 @@ psset_pick_alloc(psset_t *psset, size_t size) {
 
 	/* See comments in eset_first_fit for why we enumerate search below. */
 	pszind_t pind_prev = sz_psz2ind(sz_psz_quantize_floor(size));
-	if (sz_limit_usize_gap_enabled() && pind_prev < min_pind) {
+	if (sz_large_size_classes_disabled() && pind_prev < min_pind) {
 		ps = psset_enumerate_search(psset, pind_prev, size);
 		if (ps != NULL) {
 			return ps;
