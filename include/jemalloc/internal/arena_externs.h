@@ -46,7 +46,7 @@ void arena_stats_merge(tsdn_t *tsdn, arena_t *arena, unsigned *nthreads,
     const char **dss, ssize_t *dirty_decay_ms, ssize_t *muzzy_decay_ms,
     size_t *nactive, size_t *ndirty, size_t *nmuzzy, arena_stats_t *astats,
     bin_stats_data_t *bstats, arena_stats_large_t *lstats, pac_estats_t *estats,
-    hpa_shard_stats_t *hpastats, sec_stats_t *secstats);
+    hpa_shard_stats_t *hpastats);
 void arena_handle_deferred_work(tsdn_t *tsdn, arena_t *arena);
 edata_t *arena_extent_alloc_large(
     tsdn_t *tsdn, arena_t *arena, size_t usize, size_t alignment, bool zero);
@@ -79,10 +79,6 @@ void arena_dalloc_promoted(
     tsdn_t *tsdn, void *ptr, tcache_t *tcache, bool slow_path);
 void arena_slab_dalloc(tsdn_t *tsdn, arena_t *arena, edata_t *slab);
 
-void arena_dalloc_bin_locked_handle_newly_empty(
-    tsdn_t *tsdn, arena_t *arena, edata_t *slab, bin_t *bin);
-void arena_dalloc_bin_locked_handle_newly_nonempty(
-    tsdn_t *tsdn, arena_t *arena, edata_t *slab, bin_t *bin);
 void  arena_dalloc_small(tsdn_t *tsdn, void *ptr);
 void  arena_ptr_array_flush(tsd_t *tsd, szind_t binind,
      cache_bin_ptr_array_t *arr, unsigned nflush, bool small,
@@ -111,8 +107,6 @@ void     arena_nthreads_dec(arena_t *arena, bool internal);
 arena_t *arena_new(tsdn_t *tsdn, unsigned ind, const arena_config_t *config);
 bool     arena_init_huge(tsdn_t *tsdn, arena_t *a0);
 arena_t *arena_choose_huge(tsd_t *tsd);
-bin_t   *arena_bin_choose(
-      tsdn_t *tsdn, arena_t *arena, szind_t binind, unsigned *binshard);
 size_t arena_fill_small_fresh(tsdn_t *tsdn, arena_t *arena, szind_t binind,
     void **ptrs, size_t nfill, bool zero);
 bool   arena_boot(sc_data_t *sc_data, base_t *base, bool hpa);

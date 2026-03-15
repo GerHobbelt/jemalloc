@@ -448,7 +448,7 @@ background_thread0_work(tsd_t *tsd) {
 		}
 		if (check_background_thread_creation(tsd,
 		        const_max_background_threads, &n_created,
-		        (bool *)&created_threads)) {
+		        created_threads)) {
 			continue;
 		}
 		background_work_sleep_once(
@@ -547,8 +547,13 @@ background_thread_create_locked(tsd_t *tsd, unsigned arena_ind) {
 
 	bool need_new_thread;
 	malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
+	/*
+	 * The last check is there to leave Thread 0 creation entirely
+	 * to the initializing thread (arena 0).
+	 */
 	need_new_thread = background_thread_enabled()
-	    && (info->state == background_thread_stopped);
+	    && (info->state == background_thread_stopped)
+	    && (thread_ind != 0 || arena_ind == 0);
 	if (need_new_thread) {
 		background_thread_init(tsd, info);
 	}
@@ -560,7 +565,6 @@ background_thread_create_locked(tsd_t *tsd, unsigned arena_ind) {
 		/* Threads are created asynchronously by Thread 0. */
 		background_thread_info_t *t0 = &background_thread_info[0];
 		malloc_mutex_lock(tsd_tsdn(tsd), &t0->mtx);
-		assert(t0->state == background_thread_started);
 		pthread_cond_signal(&t0->cond);
 		malloc_mutex_unlock(tsd_tsdn(tsd), &t0->mtx);
 

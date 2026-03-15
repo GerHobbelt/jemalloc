@@ -324,6 +324,15 @@ fi
 ,
 enable_cxx="1"
 )
+AC_ARG_WITH([cxx_stdlib],
+  [AS_HELP_STRING([--with-cxx-stdlib=<libstdc++|libcxx>],
+  [Specify the C++ standard library to link (default: probe for libstdc++)])],
+  [case "${with_cxx_stdlib}" in
+    libstdc++|libcxx) ;;
+    *) AC_MSG_ERROR([bad value ${with_cxx_stdlib} for --with-cxx-stdlib]) ;;
+  esac],
+  [with_cxx_stdlib=""]
+)
 if test "x$enable_cxx" = "x1" ; then
   dnl Require at least c++14, which is the first version to support sized
   dnl deallocation.  C++ support is not compiled otherwise.
@@ -338,17 +347,28 @@ if test "x$enable_cxx" = "x1" ; then
     JE_CXXFLAGS_ADD([-g3])
 
     SAVED_LIBS="${LIBS}"
-    JE_APPEND_VS(LIBS, -lstdc++)
-    JE_COMPILABLE([libstdc++ linkage], [
+    case "${with_cxx_stdlib}" in
+      libstdc++)
+        JE_APPEND_VS(LIBS, -lstdc++)
+        ;;
+      libcxx)
+        JE_APPEND_VS(LIBS, -lc++)
+        ;;
+      *)
+        dnl Probe for libstdc++ (the default when --with-cxx-stdlib is not given).
+        JE_APPEND_VS(LIBS, -lstdc++)
+        JE_COMPILABLE([libstdc++ linkage], [
 #include <stdlib.h>
 ], [[
 	int *arr = (int *)malloc(sizeof(int) * 42);
 	if (arr == NULL)
 		return 1;
 ]], [je_cv_libstdcxx])
-    if test "x${je_cv_libstdcxx}" = "xno" ; then
-      LIBS="${SAVED_LIBS}"
-    fi
+        if test "x${je_cv_libstdcxx}" = "xno" ; then
+          LIBS="${SAVED_LIBS}"
+        fi
+        ;;
+    esac
   else
     enable_cxx="0"
   fi
@@ -652,7 +672,7 @@ AC_ARG_WITH([version],
   [AS_HELP_STRING([--with-version=<major>.<minor>.<bugfix>-<nrev>-g<gid>],
    [Version string])],
   [
-    echo "${with_version}" | grep ['^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-[0-9][0-9]*-g[0-9a-f][0-9a-f]*$'] 2>&1 1>/dev/null
+    echo "${with_version}" | grep ['^[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}-[0-9]\{1,\}-g[0-9a-f]\{1,\}$'] 2>&1 1>/dev/null
     if test $? -eq 0 ; then
       echo "$with_version" > "${objroot}VERSION"
     else
@@ -1434,36 +1454,6 @@ if test "x$enable_experimental_smallocx" = "x1" ; then
 fi
 AC_SUBST([enable_experimental_smallocx])
 
-dnl Do not enable fastpath prefetch by default.
-AC_ARG_ENABLE([experimental_fp_prefetch],
-  [AS_HELP_STRING([--enable-experimental-fp-prefetch], [Enable experimental fastpath prefetch])],
-[if test "x$enable_experimental_fp_prefetch" = "xno" ; then
-enable_experimental_fp_prefetch="0"
-else
-  dnl Check if we have __builtin_prefetch.
-  JE_CFLAGS_SAVE()
-  JE_CFLAGS_ADD([-Werror=implicit-function-declaration])
-  JE_COMPILABLE([builtin prefetch], [], [
-void foo(void *p) { __builtin_prefetch(p, 1, 3); }
-  	],
-	[je_cv_have_builtin_prefetch])
-
-	if test "x${je_cv_have_builtin_prefetch}" = "xyes" ; then
-	   enable_experimental_fp_prefetch="1"
-	else
-	   enable_experimental_fp_prefetch="0"
-	   AC_MSG_ERROR([--enable--experimental-fp-prefetch can only be used when builtin_preftech is available])
-	fi
-   JE_CFLAGS_RESTORE()
-fi
-],
-[enable_experimental_fp_prefetch="0"]
-)
-if test "x$enable_experimental_fp_prefetch" = "x1" ; then
-  AC_DEFINE([JEMALLOC_EXPERIMENTAL_FASTPATH_PREFETCH], [ ], [ ])
-fi
-AC_SUBST([enable_experimental_fp_prefetch])
-
 dnl Do not enable profiling by default.
 AC_ARG_ENABLE([prof],
   [AS_HELP_STRING([--enable-prof], [Enable allocation profiling])],
@@ -1990,6 +1980,11 @@ case "${host}" in
         LG_PAGE=14
       fi
       ;;
+  *-*-linux-android)
+      if test "x$LG_PAGE" = "xdetect"; then
+	AC_CHECK_DECLS([PAGE_SIZE], [LG_PAGE=12], [LG_PAGE=14], [#include <sys/user.h>])
+      fi
+      ;;
   aarch64-unknown-linux-*)
       if test "x$LG_PAGE" = "xdetect"; then
         LG_PAGE=16
@@ -2059,7 +2054,7 @@ if test "x${je_cv_lg_hugepage}" = "x" ; then
   dnl   Hugepagesize:       2048 kB
   if test -e "/proc/meminfo" ; then
     hpsk=[`cat /proc/meminfo 2>/dev/null | \
-          grep '^Hugepagesize:[[:space:]][[:space:]]*[0-9][0-9]*[[:space:]]kB$' | \
+          grep '^Hugepagesize:[[:space:]]\{1,\}[0-9]\{1,\}[[:space:]]kB$' | \
           awk '{print $2}'`]
     if test "x${hpsk}" != "x" ; then
       je_cv_lg_hugepage=10

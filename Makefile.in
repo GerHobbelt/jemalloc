@@ -131,11 +131,11 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/large.c \
 	$(srcroot)src/log.c \
 	$(srcroot)src/malloc_io.c \
+	$(srcroot)src/conf.c \
 	$(srcroot)src/mutex.c \
 	$(srcroot)src/nstime.c \
 	$(srcroot)src/pa.c \
 	$(srcroot)src/pa_extra.c \
-	$(srcroot)src/pai.c \
 	$(srcroot)src/pac.c \
 	$(srcroot)src/pages.c \
 	$(srcroot)src/peak_event.c \
@@ -146,7 +146,6 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/prof_stack_range.c \
 	$(srcroot)src/prof_stats.c \
 	$(srcroot)src/prof_sys.c \
-	$(srcroot)src/prof_threshold.c \
 	$(srcroot)src/psset.c \
 	$(srcroot)src/rtree.c \
 	$(srcroot)src/safety_check.c \
@@ -207,14 +206,21 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/atomic.c \
 	$(srcroot)test/unit/background_thread.c \
 	$(srcroot)test/unit/background_thread_enable.c \
+	$(srcroot)test/unit/background_thread_init.c \
 	$(srcroot)test/unit/base.c \
 	$(srcroot)test/unit/batch_alloc.c \
+	$(srcroot)test/unit/bin.c \
 	$(srcroot)test/unit/binshard.c \
 	$(srcroot)test/unit/bitmap.c \
 	$(srcroot)test/unit/bit_util.c \
 	$(srcroot)test/unit/buf_writer.c \
 	$(srcroot)test/unit/cache_bin.c \
 	$(srcroot)test/unit/ckh.c \
+	$(srcroot)test/unit/conf.c \
+	$(srcroot)test/unit/conf_init_0.c \
+	$(srcroot)test/unit/conf_init_1.c \
+	$(srcroot)test/unit/conf_init_confirm.c \
+	$(srcroot)test/unit/conf_parse.c \
 	$(srcroot)test/unit/counter.c \
 	$(srcroot)test/unit/decay.c \
 	$(srcroot)test/unit/div.c \
@@ -230,6 +236,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/hash.c \
 	$(srcroot)test/unit/hook.c \
 	$(srcroot)test/unit/hpa.c \
+	$(srcroot)test/unit/hpa_sec_integration.c \
 	$(srcroot)test/unit/hpa_thp_always.c \
 	$(srcroot)test/unit/hpa_vectorized_madvise.c \
 	$(srcroot)test/unit/hpa_vectorized_madvise_large_batch.c \
@@ -240,6 +247,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/junk.c \
 	$(srcroot)test/unit/junk_alloc.c \
 	$(srcroot)test/unit/junk_free.c \
+	$(srcroot)test/unit/json_stats.c \
 	$(srcroot)test/unit/log.c \
 	$(srcroot)test/unit/mallctl.c \
 	$(srcroot)test/unit/malloc_conf_2.c \
@@ -270,8 +278,6 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/prof_stats.c \
 	$(srcroot)test/unit/prof_tctx.c \
 	$(srcroot)test/unit/prof_thread_name.c \
-	$(srcroot)test/unit/prof_threshold.c \
-	$(srcroot)test/unit/prof_threshold_small.c \
 	$(srcroot)test/unit/prof_sys_thread_name.c \
 	$(srcroot)test/unit/psset.c \
 	$(srcroot)test/unit/ql.c \
@@ -292,6 +298,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/stats.c \
 	$(srcroot)test/unit/stats_print.c \
 	$(srcroot)test/unit/sz.c \
+	$(srcroot)test/unit/tcache_init.c \
 	$(srcroot)test/unit/tcache_max.c \
 	$(srcroot)test/unit/test_hooks.c \
 	$(srcroot)test/unit/thread_event.c \
