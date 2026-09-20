@@ -533,13 +533,14 @@ esac
 AC_DEFINE_UNQUOTED([HAVE_CPU_SPINWAIT], [$HAVE_CPU_SPINWAIT], [ ])
 AC_DEFINE_UNQUOTED([CPU_SPINWAIT], [$CPU_SPINWAIT], [ ])
 
+dnl LG_VADDR: number of significant virtual address bits. Auto-detected when --with-lg-vaddr is left unset.
 AC_ARG_WITH([lg_vaddr],
   [AS_HELP_STRING([--with-lg-vaddr=<lg-vaddr>], [Number of significant virtual address bits])],
   [LG_VADDR="$with_lg_vaddr"], [LG_VADDR="detect"])
 
-case "${host_cpu}" in
-  aarch64)
-    if test "x$LG_VADDR" = "xdetect"; then
+if test "x$LG_VADDR" = "xdetect"; then
+  case "${host_cpu}" in
+    aarch64)
       AC_MSG_CHECKING([number of significant virtual address bits])
       if test "x${LG_SIZEOF_PTR}" = "x2" ; then
         #aarch64 ILP32
@@ -549,10 +550,8 @@ case "${host_cpu}" in
         LG_VADDR=48
       fi
       AC_MSG_RESULT([$LG_VADDR])
-    fi
-    ;;
-  x86_64)
-    if test "x$LG_VADDR" = "xdetect"; then
+      ;;
+    x86_64)
       AC_CACHE_CHECK([number of significant virtual address bits],
                      [je_cv_lg_vaddr],
                      AC_RUN_IFELSE([AC_LANG_PROGRAM(
@@ -592,15 +591,33 @@ typedef unsigned __int32 uint32_t;
                    [je_cv_lg_vaddr=`cat conftest.out`],
                    [je_cv_lg_vaddr=error],
                    [je_cv_lg_vaddr=57]))
+      if test "x${je_cv_lg_vaddr}" = "xerror" ; then
+        AC_MSG_ERROR([cannot determine number of significant virtual address bits])
+      fi
       if test "x${je_cv_lg_vaddr}" != "x" ; then
         LG_VADDR="${je_cv_lg_vaddr}"
       fi
-      if test "x${LG_VADDR}" != "xerror" ; then
-        AC_DEFINE_UNQUOTED([LG_VADDR], [$LG_VADDR], [ ])
+      ;;
+    *)
+      AC_MSG_CHECKING([number of significant virtual address bits])
+      if test "x${LG_SIZEOF_PTR}" = "x3" ; then
+        LG_VADDR=64
+      elif test "x${LG_SIZEOF_PTR}" = "x2" ; then
+        LG_VADDR=32
+      elif test "x${LG_SIZEOF_PTR}" = "xLG_SIZEOF_PTR_WIN" ; then
+        LG_VADDR="(1U << (LG_SIZEOF_PTR_WIN+3))"
       else
-        AC_MSG_ERROR([cannot determine number of significant virtual address bits])
+        AC_MSG_ERROR([Unsupported lg(pointer size): ${LG_SIZEOF_PTR}])
       fi
-    fi
+      AC_MSG_RESULT([$LG_VADDR])
+      ;;
+  esac
+fi
+AC_DEFINE_UNQUOTED([LG_VADDR], [$LG_VADDR], [ ])
+
+dnl rdtscp feature probe for x86_64
+case "${host_cpu}" in
+  x86_64)
     AC_CACHE_CHECK([rdtscp support],
 		   [je_cv_rdtscp],
 		   AC_RUN_IFELSE([AC_LANG_PROGRAM(
@@ -619,23 +636,8 @@ typedef unsigned __int32 uint32_t;
       AC_DEFINE([JEMALLOC_HAVE_RDTSCP], [ ], [ ])
     fi
     ;;
-  *)
-    if test "x$LG_VADDR" = "xdetect"; then
-      AC_MSG_CHECKING([number of significant virtual address bits])
-      if test "x${LG_SIZEOF_PTR}" = "x3" ; then
-        LG_VADDR=64
-      elif test "x${LG_SIZEOF_PTR}" = "x2" ; then
-        LG_VADDR=32
-      elif test "x${LG_SIZEOF_PTR}" = "xLG_SIZEOF_PTR_WIN" ; then
-        LG_VADDR="(1U << (LG_SIZEOF_PTR_WIN+3))"
-      else
-        AC_MSG_ERROR([Unsupported lg(pointer size): ${LG_SIZEOF_PTR}])
-      fi
-      AC_MSG_RESULT([$LG_VADDR])
-    fi
-    ;;
 esac
-AC_DEFINE_UNQUOTED([LG_VADDR], [$LG_VADDR], [ ])
+
 AC_CACHE_CHECK([asm volatile support],
                [je_cv_asm_volatile],
                AC_RUN_IFELSE([AC_LANG_PROGRAM(
@@ -1555,33 +1557,6 @@ if test "x$backtrace_method" = "x" -a "x$enable_prof_libunwind" = "x1" ; then
   fi
 fi
 
-if test `uname -s` = "Linux"
-then
-  AC_ARG_ENABLE([prof-frameptr],
-    [AS_HELP_STRING([--enable-prof-frameptr], [Use optimized frame pointer unwinder for backtracing (Linux only)])],
-  [if test "x$enable_prof_frameptr" = "xno" ; then
-    enable_prof_frameptr="0"
-  else
-    enable_prof_frameptr="1"
-    if test "x$enable_prof" = "x0" ; then
-      AC_MSG_ERROR([--enable-prof-frameptr should only be used with --enable-prof])
-    fi
-  fi
-  ],
-  [enable_prof_frameptr="0"]
-  )
-  if test "x$backtrace_method" = "x" -a "x$enable_prof_frameptr" = "x1" \
-      -a "x$GCC" = "xyes" ; then
-    JE_CFLAGS_ADD([-fno-omit-frame-pointer])
-    backtrace_method="frame pointer linux"
-    AC_DEFINE([JEMALLOC_PROF_FRAME_POINTER], [ ], [ ])
-  else
-    enable_prof_frameptr="0"
-  fi
-else
-  enable_prof_frameptr="0"
-fi
-
 AC_ARG_ENABLE([prof-libgcc],
   [AS_HELP_STRING([--disable-prof-libgcc],
   [Do not use libgcc for backtracing])],
@@ -2223,6 +2198,43 @@ dnl Check if we have dlsym support.
 ], [je_cv_pthread_get_name_np])
   if test "x${je_cv_pthread_get_name_np}" = "xyes" ; then
     AC_DEFINE([JEMALLOC_HAVE_PTHREAD_GET_NAME_NP], [ ], [ ])
+  fi
+  dnl Runtime-check pthread_condattr_setclock and clock_gettime with
+  dnl CLOCK_MONOTONIC to confirm the kernel actually supports the
+  dnl monotonic clock.
+  AC_CACHE_CHECK([whether pthread_condattr_setclock with CLOCK_MONOTONIC is usable],
+                 [je_cv_pthread_cond_timedwait_monotonic],
+                 AC_RUN_IFELSE([AC_LANG_PROGRAM(
+[[
+#include <pthread.h>
+#include <time.h>
+]], [[
+  pthread_condattr_t attr;
+  pthread_cond_t cond;
+  struct timespec ts;
+  int ret = pthread_condattr_init(&attr);
+  if (ret != 0) {
+    return 1;
+  }
+  ret = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+  if (ret != 0) {
+    pthread_condattr_destroy(&attr);
+    return 1;
+  }
+  ret = pthread_cond_init(&cond, &attr);
+  pthread_condattr_destroy(&attr);
+  if (ret != 0) {
+    return 1;
+  }
+  ret = clock_gettime(CLOCK_MONOTONIC, &ts);
+  pthread_cond_destroy(&cond);
+  return ret != 0;
+]])],
+                 [je_cv_pthread_cond_timedwait_monotonic=yes],
+                 [je_cv_pthread_cond_timedwait_monotonic=no],
+                 [je_cv_pthread_cond_timedwait_monotonic=no]))
+  if test "x${je_cv_pthread_cond_timedwait_monotonic}" = "xyes" ; then
+    AC_DEFINE([JEMALLOC_HAVE_PTHREAD_COND_TIMEDWAIT_MONOTONIC], [ ], [ ])
   fi
 fi
 
@@ -3147,7 +3159,6 @@ AC_MSG_RESULT([user_config        : ${enable_user_config}])
 AC_MSG_RESULT([experimental_smallocx : ${enable_experimental_smallocx}])
 AC_MSG_RESULT([prof               : ${enable_prof}])
 AC_MSG_RESULT([prof-libunwind     : ${enable_prof_libunwind}])
-AC_MSG_RESULT([prof-frameptr      : ${enable_prof_frameptr}])
 AC_MSG_RESULT([prof-libgcc        : ${enable_prof_libgcc}])
 AC_MSG_RESULT([prof-gcc           : ${enable_prof_gcc}])
 AC_MSG_RESULT([fill               : ${enable_fill}])

@@ -1044,24 +1044,28 @@ tcache_create_explicit(tsd_t *tsd) {
 bool
 tsd_tcache_enabled_data_init(tsd_t *tsd) {
 	/* Called upon tsd initialization. */
-	tsd_tcache_enabled_set(tsd, opt_tcache);
 	/*
 	 * tcache is not available yet, but we need to set up its tcache_nbins
 	 * in advance.
 	 */
 	tcache_default_settings_init(tsd_tcache_slowp_get(tsd));
-	tsd_slow_update(tsd);
+
+#if defined(JEMALLOC_JET) || defined(JEMALLOC_UNIT_TEST)
 	if (test_hooks_tsd_bootstrap_hook != NULL) {
 		test_hooks_tsd_bootstrap_hook();
 	}
+#endif
 
+	bool err = false;
 	if (opt_tcache) {
-		/* Trigger tcache init. */
-		return tsd_tcache_data_init(
+		/* Initialize the bins before advertising the tcache. */
+		err = tsd_tcache_data_init(
 			tsd, NULL, tcache_get_default_ncached_max());
 	}
 
-	return false;
+	tsd_tcache_enabled_set(tsd, opt_tcache && !err);
+	tsd_slow_update(tsd);
+	return err;
 }
 
 void
@@ -1230,17 +1234,18 @@ tcache_destroy(tsd_t *tsd, tcache_t *tcache, bool tsd_tcache) {
 	 * tsd).  Manually trigger decay to avoid pathological cases.  Also
 	 * include arena 0 because the tcache array is allocated from it.
 	 */
-	arena_decay(
-	    tsd_tsdn(tsd), arena_get(tsd_tsdn(tsd), 0, false), false, false);
+	pa_shard_do_deferred_work(tsd_tsdn(tsd),
+	    &arena_get(tsd_tsdn(tsd), 0, false)->pa_shard,
+	    /* is_background_thread */ false);
 
 	if (arena_nthreads_get(arena, false) == 0
 	    && !background_thread_enabled()) {
 		/* Force purging when no threads assigned to the arena anymore. */
-		arena_decay(tsd_tsdn(tsd), arena,
-		    /* is_background_thread */ false, /* all */ true);
+		pa_shard_flush(tsd_tsdn(tsd), &arena->pa_shard,
+		    /* all */ true);
 	} else {
-		arena_decay(tsd_tsdn(tsd), arena,
-		    /* is_background_thread */ false, /* all */ false);
+		pa_shard_do_deferred_work(tsd_tsdn(tsd), &arena->pa_shard,
+		    /* is_background_thread */ false);
 	}
 }
 

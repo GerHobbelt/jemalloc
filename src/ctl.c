@@ -121,7 +121,6 @@ CTL_PROTO(config_opt_safety_checks)
 CTL_PROTO(config_prof)
 CTL_PROTO(config_prof_libgcc)
 CTL_PROTO(config_prof_libunwind)
-CTL_PROTO(config_prof_frameptr)
 CTL_PROTO(config_stats)
 CTL_PROTO(config_utrace)
 CTL_PROTO(config_xmalloc)
@@ -495,7 +494,6 @@ static const ctl_named_node_t config_node[] = {
     {NAME("prof"), CTL(config_prof)},
     {NAME("prof_libgcc"), CTL(config_prof_libgcc)},
     {NAME("prof_libunwind"), CTL(config_prof_libunwind)},
-    {NAME("prof_frameptr"), CTL(config_prof_frameptr)},
     {NAME("stats"), CTL(config_stats)}, {NAME("utrace"), CTL(config_utrace)},
     {NAME("xmalloc"), CTL(config_xmalloc)}};
 
@@ -2210,7 +2208,6 @@ CTL_RO_CONFIG_GEN(config_opt_safety_checks, bool)
 CTL_RO_CONFIG_GEN(config_prof, bool)
 CTL_RO_CONFIG_GEN(config_prof_libgcc, bool)
 CTL_RO_CONFIG_GEN(config_prof_libunwind, bool)
-CTL_RO_CONFIG_GEN(config_prof_frameptr, bool)
 CTL_RO_CONFIG_GEN(config_stats, bool)
 CTL_RO_CONFIG_GEN(config_utrace, bool)
 CTL_RO_CONFIG_GEN(config_xmalloc, bool)
@@ -2374,10 +2371,18 @@ thread_arena_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	if (have_percpu_arena && PERCPU_ARENA_ENABLED(opt_percpu_arena)) {
 		if (newind < percpu_arena_ind_limit(opt_percpu_arena)) {
 			/*
-			 * If perCPU arena is enabled, thread_arena control is
-			 * not allowed for the auto arena range.
+			 * Setting thread.arena to an arena in the auto range
+			 * means "resume automatic per-CPU selection" rather than
+			 * pinning to a specific per-CPU arena. This lets a caller
+			 * that temporarily switched to a manually managed arena
+			 * (e.g. a scoped guard) hand the thread back to per-CPU
+			 * management. It is otherwise impossible: a thread bound
+			 * to a manual arena is never reclaimed by percpu (see
+			 * arena_choose_impl), so without this it would stay
+			 * pinned forever.
 			 */
-			return EPERM;
+			percpu_arena_update(tsd, percpu_arena_choose());
+			return 0;
 		}
 	}
 
@@ -2616,7 +2621,7 @@ thread_idle_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	if (opt_narenas > ncpus * 2) {
 		arena_t *arena = arena_choose(tsd, NULL);
 		if (arena != NULL) {
-			arena_decay(tsd_tsdn(tsd), arena, false, true);
+			pa_shard_flush(tsd_tsdn(tsd), &arena->pa_shard, true);
 		}
 		/*
 		 * The missing arena case is not actually an error; a thread
@@ -2738,7 +2743,13 @@ arena_i_decay(tsdn_t *tsdn, unsigned arena_ind, bool all) {
 
 	for (unsigned i = 0; i < count; i++) {
 		if (tarenas[i] != NULL) {
-			arena_decay(tsdn, tarenas[i], false, all);
+			if (all) {
+				pa_shard_flush(tsdn, &tarenas[i]->pa_shard,
+				    true);
+			} else {
+				pa_shard_do_deferred_work(
+				    tsdn, &tarenas[i]->pa_shard, false);
+			}
 		}
 	}
 }
@@ -2790,37 +2801,6 @@ arena_i_reset_destroy_helper(tsd_t *tsd, const size_t *mib, size_t miblen,
 	return ret;
 }
 
-static void
-arena_reset_prepare_background_thread(tsd_t *tsd, unsigned arena_ind) {
-	/* Temporarily disable the background thread during arena reset. */
-	if (have_background_thread) {
-		malloc_mutex_lock(tsd_tsdn(tsd), &background_thread_lock);
-		if (background_thread_enabled()) {
-			background_thread_info_t *info =
-			    background_thread_info_get(arena_ind);
-			assert(info->state == background_thread_started);
-			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
-			info->state = background_thread_paused;
-			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
-		}
-	}
-}
-
-static void
-arena_reset_finish_background_thread(tsd_t *tsd, unsigned arena_ind) {
-	if (have_background_thread) {
-		if (background_thread_enabled()) {
-			background_thread_info_t *info =
-			    background_thread_info_get(arena_ind);
-			assert(info->state == background_thread_paused);
-			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
-			info->state = background_thread_started;
-			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
-		}
-		malloc_mutex_unlock(tsd_tsdn(tsd), &background_thread_lock);
-	}
-}
-
 static int
 arena_i_reset_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
     size_t *oldlenp, void *newp, size_t newlen) {
@@ -2834,9 +2814,9 @@ arena_i_reset_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 		return ret;
 	}
 
-	arena_reset_prepare_background_thread(tsd, arena_ind);
+	background_thread_arena_reset_begin(tsd, arena_ind);
 	arena_reset(tsd, arena);
-	arena_reset_finish_background_thread(tsd, arena_ind);
+	background_thread_arena_reset_finish(tsd, arena_ind);
 
 	return ret;
 }
@@ -2863,10 +2843,10 @@ arena_i_destroy_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 		goto label_return;
 	}
 
-	arena_reset_prepare_background_thread(tsd, arena_ind);
+	background_thread_arena_reset_begin(tsd, arena_ind);
 	/* Merge stats after resetting and purging arena. */
 	arena_reset(tsd, arena);
-	arena_decay(tsd_tsdn(tsd), arena, false, true);
+	pa_shard_flush(tsd_tsdn(tsd), &arena->pa_shard, true);
 	ctl_darena = arenas_i(MALLCTL_ARENAS_DESTROYED);
 	ctl_darena->initialized = true;
 	ctl_arena_refresh(tsd_tsdn(tsd), arena, ctl_darena, arena_ind, true);
@@ -2877,7 +2857,7 @@ arena_i_destroy_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	/* Record arena index for later recycling via arenas.create. */
 	ql_elm_new(ctl_arena, destroyed_link);
 	ql_tail_insert(&ctl_arenas->destroyed, ctl_arena, destroyed_link);
-	arena_reset_finish_background_thread(tsd, arena_ind);
+	background_thread_arena_reset_finish(tsd, arena_ind);
 
 	assert(ret == 0);
 label_return:
@@ -2997,7 +2977,7 @@ arena_i_decay_ms_ctl_impl(tsd_t *tsd, const size_t *mib, size_t miblen,
 	}
 
 	extent_state_t state = dirty ? extent_state_dirty : extent_state_muzzy;
-	ssize_t oldval = arena_decay_ms_get(arena, state);
+	ssize_t oldval = pa_decay_ms_get(&arena->pa_shard, state);
 	ret = ctl_read(oldp, oldlenp, &oldval, sizeof(oldval));
 	if (ret != 0 || newp == NULL) {
 		return ret;
@@ -3005,7 +2985,8 @@ arena_i_decay_ms_ctl_impl(tsd_t *tsd, const size_t *mib, size_t miblen,
 
 	ssize_t newval;
 	ret = ctl_write(&newval, sizeof(newval), newp, newlen);
-	if (ret == 0 && arena_decay_ms_set(tsd_tsdn(tsd), arena, state, newval)) {
+	if (ret == 0 && pa_decay_ms_set(tsd_tsdn(tsd), &arena->pa_shard,
+	    state, newval)) {
 		ret = EFAULT;
 	}
 	return ret;

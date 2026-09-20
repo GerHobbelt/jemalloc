@@ -1,6 +1,8 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
 
 #include "jemalloc/internal/background_thread.h"
+#include "jemalloc/internal/background_thread_inlines.h"
+#include "jemalloc/internal/deferral.h"
 #include "jemalloc/internal/hpa.h"
 #include "jemalloc/internal/pa.h"
 
@@ -89,14 +91,20 @@ pa_shard_disable_hpa(tsdn_t *tsdn, pa_shard_t *shard) {
 void
 pa_shard_reset(tsdn_t *tsdn, pa_shard_t *shard) {
 	atomic_store_zu(&shard->nactive, 0, ATOMIC_RELAXED);
-	pa_shard_flush(tsdn, shard);
+	pa_shard_flush(tsdn, shard, /* all */ false);
 }
 
 void
-pa_shard_flush(tsdn_t *tsdn, pa_shard_t *shard) {
+pa_shard_flush(tsdn_t *tsdn, pa_shard_t *shard, bool all) {
 	pac_sec_flush(tsdn, &shard->pac);
 	if (shard->ever_used_hpa) {
 		hpa_shard_flush(tsdn, &shard->hpa);
+	}
+	if (all) {
+		pac_decay_all_now(tsdn, &shard->pac, extent_state_dirty);
+		if (pac_should_decay_muzzy(&shard->pac)) {
+			pac_decay_all_now(tsdn, &shard->pac, extent_state_muzzy);
+		}
 	}
 }
 
@@ -231,8 +239,8 @@ pa_dalloc(tsdn_t *tsdn, pa_shard_t *shard, edata_t *edata,
 
 bool
 pa_decay_ms_set(tsdn_t *tsdn, pa_shard_t *shard, extent_state_t state,
-    ssize_t decay_ms, pac_purge_eagerness_t eagerness) {
-	return pac_decay_ms_set(tsdn, &shard->pac, state, decay_ms, eagerness);
+    ssize_t decay_ms) {
+	return pac_decay_ms_set(tsdn, &shard->pac, state, decay_ms);
 }
 
 ssize_t
@@ -250,8 +258,28 @@ pa_shard_set_deferral_allowed(
 }
 
 void
-pa_shard_do_deferred_work(tsdn_t *tsdn, pa_shard_t *shard) {
-	if (pa_shard_uses_hpa(shard)) {
+pa_shard_handle_deferred_work(tsdn_t *tsdn, pa_shard_t *shard) {
+	witness_assert_depth_to_rank(
+	    tsdn_witness_tsdp_get(tsdn), WITNESS_RANK_CORE, 0);
+
+	if (pac_decay_immediately(&shard->pac)) {
+		pac_decay_all_now(tsdn, &shard->pac, extent_state_dirty);
+	}
+	if (background_thread_enabled()) {
+		pac_wake_bg_on_deferred(tsdn, &shard->pac);
+	}
+}
+
+void
+pa_shard_do_deferred_work(
+    tsdn_t *tsdn, pa_shard_t *shard, bool is_background_thread) {
+	pac_do_deferred_work(tsdn, &shard->pac, is_background_thread);
+	/*
+	 * Application threads self-throttle HPA deferred work inline from their
+	 * own alloc/dalloc path (hpa_shard_maybe_do_deferred_work, capped), so
+	 * only drive it (forced, uncapped) from here on the background thread.
+	 */
+	if (is_background_thread && pa_shard_uses_hpa(shard)) {
 		hpa_shard_do_deferred_work(tsdn, &shard->hpa);
 	}
 }
@@ -264,7 +292,7 @@ pa_shard_do_deferred_work(tsdn_t *tsdn, pa_shard_t *shard) {
 uint64_t
 pa_shard_time_until_deferred_work(tsdn_t *tsdn, pa_shard_t *shard) {
 	uint64_t time = pac_time_until_deferred_work(tsdn, &shard->pac);
-	if (time == BACKGROUND_THREAD_DEFERRED_MIN) {
+	if (time == DEFERRED_WORK_MIN) {
 		return time;
 	}
 

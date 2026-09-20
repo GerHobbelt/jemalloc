@@ -6,6 +6,7 @@
 #include "jemalloc/internal/background_thread.h"
 #include "jemalloc/internal/background_thread_inlines.h"
 #include "jemalloc/internal/ctl.h"
+#include "jemalloc/internal/deferral.h"
 #include "jemalloc/internal/jemalloc_internal_inlines_a.h"
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
@@ -32,6 +33,72 @@ size_t     n_background_threads;
 size_t     max_background_threads;
 /* Thread info per-index. */
 background_thread_info_t *background_thread_info;
+
+/******************************************************************************/
+/*
+ * Config-independent lifecycle/state-ownership helpers.  Defined
+ * unconditionally and gated at runtime on have_background_thread, so callers in
+ * ctl.c / arena.c never touch background_thread_lock or info->state directly;
+ * they compile to runtime no-ops when !have_background_thread.
+ */
+
+void
+background_thread_arena_reset_begin(tsd_t *tsd, unsigned arena_ind) {
+	/* Temporarily disable the background thread during arena reset. */
+	if (have_background_thread) {
+		/*
+		 * Hold background_thread_lock across the whole arena-reset
+		 * body (acquired here, released in _finish) so a concurrent
+		 * background_threads_enable() cannot start a background
+		 * thread mid-reset.  This must happen whenever the feature
+		 * is compiled in (have_background_thread), even when the
+		 * thread is not currently enabled; the state transition
+		 * below is separately gated on background_thread_enabled().
+		 */
+		malloc_mutex_lock(tsd_tsdn(tsd), &background_thread_lock);
+		if (background_thread_enabled()) {
+			background_thread_info_t *info =
+			    background_thread_info_get(arena_ind);
+			assert(info->state == background_thread_started);
+			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
+			info->state = background_thread_paused;
+			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
+		}
+	}
+}
+
+void
+background_thread_arena_reset_finish(tsd_t *tsd, unsigned arena_ind) {
+	if (have_background_thread) {
+		if (background_thread_enabled()) {
+			background_thread_info_t *info =
+			    background_thread_info_get(arena_ind);
+			assert(info->state == background_thread_paused);
+			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
+			info->state = background_thread_started;
+			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
+		}
+		malloc_mutex_unlock(tsd_tsdn(tsd), &background_thread_lock);
+	}
+}
+
+void
+background_thread_serialize_lock(tsd_t *tsd, unsigned arena_ind) {
+	if (have_background_thread) {
+		background_thread_info_t *info =
+		    background_thread_info_get(arena_ind);
+		malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
+	}
+}
+
+void
+background_thread_serialize_unlock(tsd_t *tsd, unsigned arena_ind) {
+	if (have_background_thread) {
+		background_thread_info_t *info =
+		    background_thread_info_get(arena_ind);
+		malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
+	}
+}
 
 /******************************************************************************/
 
@@ -191,6 +258,50 @@ background_thread_cond_wait(
 	return ret;
 }
 
+static int
+background_thread_cond_init(pthread_cond_t *cond) {
+#ifdef JEMALLOC_HAVE_PTHREAD_COND_TIMEDWAIT_MONOTONIC
+	pthread_condattr_t cond_attr;
+	int ret = pthread_condattr_init(&cond_attr);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+	if (ret != 0) {
+		pthread_condattr_destroy(&cond_attr);
+		return ret;
+	}
+	ret = pthread_cond_init(cond, &cond_attr);
+	pthread_condattr_destroy(&cond_attr);
+	return ret;
+#else
+	return pthread_cond_init(cond, NULL);
+#endif
+}
+
+/*
+ * Fill in the absolute deadline for pthread_cond_timedwait.  The clock read
+ * here MUST match the clock the condvar was initialized with in
+ * background_thread_cond_init, otherwise the deadline is interpreted against
+ * the wrong epoch.
+ */
+static void
+background_thread_wakeup_ts_init(struct timespec *ts, uint64_t interval) {
+	nstime_t wakeup;
+#ifdef JEMALLOC_HAVE_PTHREAD_COND_TIMEDWAIT_MONOTONIC
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	nstime_init2(&wakeup, now.tv_sec, now.tv_nsec);
+#else
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	nstime_init2(&wakeup, tv.tv_sec, tv.tv_usec * 1000);
+#endif
+	nstime_iadd(&wakeup, interval);
+	ts->tv_sec = (size_t)nstime_sec(&wakeup);
+	ts->tv_nsec = (size_t)nstime_nsec(&wakeup);
+}
+
 static void
 background_thread_sleep(
     tsdn_t *tsdn, background_thread_info_t *info, uint64_t interval) {
@@ -199,11 +310,8 @@ background_thread_sleep(
 	}
 	info->npages_to_purge_new = 0;
 
-	struct timeval tv;
-	/* Specific clock required by timedwait. */
-	gettimeofday(&tv, NULL);
 	nstime_t before_sleep;
-	nstime_init2(&before_sleep, tv.tv_sec, tv.tv_usec * 1000);
+	nstime_init_update(&before_sleep);
 
 	int ret;
 	if (interval == BACKGROUND_THREAD_INDEFINITE_SLEEP) {
@@ -223,21 +331,16 @@ background_thread_sleep(
 		background_thread_wakeup_time_set(
 		    tsdn, info, nstime_ns(&next_wakeup));
 
-		nstime_t ts_wakeup;
-		nstime_copy(&ts_wakeup, &before_sleep);
-		nstime_iadd(&ts_wakeup, interval);
 		struct timespec ts;
-		ts.tv_sec = (size_t)nstime_sec(&ts_wakeup);
-		ts.tv_nsec = (size_t)nstime_nsec(&ts_wakeup);
+		background_thread_wakeup_ts_init(&ts, interval);
 
 		assert(!background_thread_indefinite_sleep(info));
 		ret = background_thread_cond_wait(info, &ts);
 		assert(ret == ETIMEDOUT || ret == 0);
 	}
 	if (config_stats) {
-		gettimeofday(&tv, NULL);
 		nstime_t after_sleep;
-		nstime_init2(&after_sleep, tv.tv_sec, tv.tv_usec * 1000);
+		nstime_init_update(&after_sleep);
 		if (nstime_compare(&after_sleep, &before_sleep) > 0) {
 			nstime_subtract(&after_sleep, &before_sleep);
 			nstime_add(&info->tot_sleep_time, &after_sleep);
@@ -262,7 +365,7 @@ background_thread_pause_check(tsdn_t *tsdn, background_thread_info_t *info) {
 static inline void
 background_work_sleep_once(
     tsdn_t *tsdn, background_thread_info_t *info, unsigned ind) {
-	uint64_t ns_until_deferred = BACKGROUND_THREAD_DEFERRED_MAX;
+	uint64_t ns_until_deferred = DEFERRED_WORK_MAX;
 	unsigned narenas = narenas_total_get();
 	bool     slept_indefinitely = background_thread_indefinite_sleep(info);
 
@@ -277,7 +380,8 @@ background_work_sleep_once(
 		 * work that caused this thread to wake up is scheduled for.
 		 */
 		if (!slept_indefinitely) {
-			arena_do_deferred_work(tsdn, arena);
+			pa_shard_do_deferred_work(tsdn, &arena->pa_shard,
+			    /* is_background_thread */ true);
 		}
 		if (ns_until_deferred <= BACKGROUND_THREAD_MIN_INTERVAL_NS) {
 			/* Min interval will be used. */
@@ -291,7 +395,7 @@ background_work_sleep_once(
 	}
 
 	uint64_t sleep_ns;
-	if (ns_until_deferred == BACKGROUND_THREAD_DEFERRED_MAX) {
+	if (ns_until_deferred == DEFERRED_WORK_MAX) {
 		sleep_ns = BACKGROUND_THREAD_INDEFINITE_SLEEP;
 	} else {
 		sleep_ns = (ns_until_deferred
@@ -751,7 +855,7 @@ background_thread_postfork_child(tsdn_t *tsdn) {
 		background_thread_info_t *info = &background_thread_info[i];
 		malloc_mutex_lock(tsdn, &info->mtx);
 		info->state = background_thread_stopped;
-		int ret = pthread_cond_init(&info->cond, NULL);
+		int ret = background_thread_cond_init(&info->cond);
 		assert(ret == 0);
 		background_thread_info_init(tsdn, info);
 		malloc_mutex_unlock(tsdn, &info->mtx);
@@ -869,7 +973,7 @@ background_thread_boot1(tsdn_t *tsdn, base_t *base) {
 		        malloc_mutex_address_ordered)) {
 			return true;
 		}
-		if (pthread_cond_init(&info->cond, NULL)) {
+		if (background_thread_cond_init(&info->cond)) {
 			return true;
 		}
 		malloc_mutex_lock(tsdn, &info->mtx);

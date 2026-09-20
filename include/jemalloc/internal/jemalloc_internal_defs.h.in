@@ -97,6 +97,9 @@
 /* Defined if pthread_get_name_np(3) is available. */
 #undef JEMALLOC_HAVE_PTHREAD_GET_NAME_NP
 
+/* Defined if pthread_condattr_setclock(..., CLOCK_MONOTONIC) is available. */
+#undef JEMALLOC_HAVE_PTHREAD_COND_TIMEDWAIT_MONOTONIC
+
 /*
  * Defined if clock_gettime(CLOCK_MONOTONIC_COARSE, ...) is available.
  */
@@ -171,9 +174,6 @@
 
 /* Use gcc intrinsics for profile backtracing if defined. */
 #undef JEMALLOC_PROF_GCC
-
-/* Use frame pointer for profile backtracing if defined. Linux only. */
-#undef JEMALLOC_PROF_FRAME_POINTER
 
 /* JEMALLOC_PAGEID enabled page id */
 #undef JEMALLOC_PAGEID

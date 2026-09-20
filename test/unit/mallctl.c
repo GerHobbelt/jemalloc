@@ -489,7 +489,6 @@ TEST_BEGIN(test_mallctl_config) {
 	TEST_MALLCTL_CONFIG(prof, bool);
 	TEST_MALLCTL_CONFIG(prof_libgcc, bool);
 	TEST_MALLCTL_CONFIG(prof_libunwind, bool);
-	TEST_MALLCTL_CONFIG(prof_frameptr, bool);
 	TEST_MALLCTL_CONFIG(stats, bool);
 	TEST_MALLCTL_CONFIG(utrace, bool);
 	TEST_MALLCTL_CONFIG(xmalloc, bool);
@@ -764,12 +763,17 @@ TEST_BEGIN(test_thread_arena) {
 		    0, "Unexpected mallctl() failure");
 		new_arena_ind = percpu_arena_ind_limit(opt_percpu_arena) - 1;
 		if (old_arena_ind != new_arena_ind) {
+			/*
+			 * Setting thread.arena to an index within the per-CPU
+			 * range resumes automatic per-CPU selection rather than
+			 * failing (see test/unit/percpu_arena_resume.c).
+			 */
 			expect_d_eq(
 			    mallctl("thread.arena", (void *)&old_arena_ind, &sz,
 			        (void *)&new_arena_ind, sizeof(unsigned)),
-			    EPERM,
-			    "thread.arena ctl "
-			    "should not be allowed with percpu arena");
+			    0,
+			    "thread.arena within the per-CPU range should "
+			    "resume per-CPU selection");
 		}
 	}
 }

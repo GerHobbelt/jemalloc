@@ -224,11 +224,8 @@ def generate_linux_job(arch):
     if arch != ARM64:
         exclude += [LARGE_HUGEPAGE]
 
-    linux_configure_flags = list(configure_flag_unusuals)
-    linux_configure_flags.append(Option.as_configure_flag("--enable-prof --enable-prof-frameptr"))
-
     linux_unusuals = (compilers_unusual + feature_unusuals
-                    + linux_configure_flags + malloc_conf_unusuals)
+                    + configure_flag_unusuals + malloc_conf_unusuals)
 
     matrix_entries = generate_job_matrix_entries(os, arch, exclude, max_unusual_opts, linux_unusuals)
 
@@ -272,6 +269,18 @@ def generate_linux_job(arch):
             'CC': 'gcc',
             'CXX': 'g++',
             'CONFIGURE_FLAGS': '--enable-debug --enable-experimental-smallocx --enable-stats --enable-prof',
+            'EXTRA_CFLAGS': '-Werror -Wno-array-bounds'
+        },
+        {
+            'CC': 'gcc',
+            'CXX': 'g++',
+            'CONFIGURE_FLAGS': 'force_tls=0',
+            'EXTRA_CFLAGS': '-Werror -Wno-array-bounds'
+        },
+        {
+            'CC': 'gcc',
+            'CXX': 'g++',
+            'CONFIGURE_FLAGS': 'force_tls=0 --enable-debug',
             'EXTRA_CFLAGS': '-Werror -Wno-array-bounds'
         }
     ]

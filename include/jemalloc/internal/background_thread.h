@@ -13,17 +13,6 @@
 #define MAX_BACKGROUND_THREAD_LIMIT MALLOCX_ARENA_LIMIT
 #define DEFAULT_NUM_BACKGROUND_THREAD 4
 
-/*
- * These exist only as a transitional state.  Eventually, deferral should be
- * part of the PAI, and each implementation can indicate wait times with more
- * specificity.
- */
-#define BACKGROUND_THREAD_HPA_INTERVAL_MAX_UNINITIALIZED (-2)
-#define BACKGROUND_THREAD_HPA_INTERVAL_MAX_DEFAULT_WHEN_ENABLED 5000
-
-#define BACKGROUND_THREAD_DEFERRED_MIN UINT64_C(0)
-#define BACKGROUND_THREAD_DEFERRED_MAX UINT64_MAX
-
 typedef enum {
 	background_thread_stopped,
 	background_thread_started,
@@ -86,6 +75,25 @@ void background_thread_postfork_child(tsdn_t *tsdn);
 bool background_thread_stats_read(
     tsdn_t *tsdn, background_thread_stats_t *stats);
 void background_thread_ctl_init(tsdn_t *tsdn);
+
+/*
+ * Arena-reset lifecycle bracket (owned by the bg-thread module so the
+ * started<->paused state machine is mutated only inside the module).  begin()
+ * acquires the global background_thread_lock and RETURNS WITH IT HELD;
+ * finish() releases it.  The lock intentionally spans the whole arena-reset
+ * body across the two calls.  Pass arena_ind (not an arena_t *): the destroy
+ * path frees the arena before calling finish().
+ */
+void background_thread_arena_reset_begin(tsd_t *tsd, unsigned arena_ind);
+void background_thread_arena_reset_finish(tsd_t *tsd, unsigned arena_ind);
+
+/*
+ * Serialize a rare admin operation against the background thread by holding the
+ * per-arena info mutex (have_background_thread-gated).  Used by
+ * arena_set_extent_hooks to fence pa_shard_disable_hpa.
+ */
+void background_thread_serialize_lock(tsd_t *tsd, unsigned arena_ind);
+void background_thread_serialize_unlock(tsd_t *tsd, unsigned arena_ind);
 
 #ifdef JEMALLOC_PTHREAD_CREATE_WRAPPER
 extern int pthread_create_wrapper(pthread_t *__restrict, const pthread_attr_t *,
