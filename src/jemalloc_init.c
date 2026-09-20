@@ -7,7 +7,6 @@
 #include "jemalloc/internal/emap.h"
 #include "jemalloc/internal/extent_dss.h"
 #include "jemalloc/internal/extent_mmap.h"
-#include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/jemalloc_fork.h"
 #include "jemalloc/internal/jemalloc_init.h"
 #include "jemalloc/internal/malloc_io.h"
@@ -39,12 +38,14 @@ malloc_is_initializer(void) {
 #endif
 }
 
-bool
+#ifdef JEMALLOC_THREADED_INIT
+static bool
 malloc_initializer_is_set(void) {
 	return malloc_initializer != NO_INITIALIZER;
 }
+#endif
 
-void
+static void
 malloc_initializer_set(void) {
 	malloc_initializer = INITIALIZER;
 }
@@ -232,7 +233,6 @@ malloc_init_hard_a0_locked(void) {
 	if (arenas_management_boot()) {
 		return true;
 	}
-	hook_boot();
 	experimental_thread_events_boot();
 	/*
 	 * Create enough scaffolding to allow recursive allocation in
@@ -303,16 +303,7 @@ stats_print_atexit(void) {
 		for (i = 0, narenas = narenas_total_get(); i < narenas; i++) {
 			arena_t *arena = arena_get(tsdn, i, false);
 			if (arena != NULL) {
-				tcache_slow_t *tcache_slow;
-
-				malloc_mutex_lock(tsdn, &arena->tcache_ql_mtx);
-				ql_foreach (
-				    tcache_slow, &arena->tcache_ql, link) {
-					tcache_stats_merge(
-					    tsdn, tcache_slow->tcache, arena);
-				}
-				malloc_mutex_unlock(
-				    tsdn, &arena->tcache_ql_mtx);
+				arena_cache_bins_stats_merge(tsdn, arena);
 			}
 		}
 	}

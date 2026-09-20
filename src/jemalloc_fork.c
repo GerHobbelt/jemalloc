@@ -88,7 +88,6 @@ _malloc_prefork(void)
 	}
 	prof_prefork1(tsd_tsdn(tsd));
 	stats_prefork(tsd_tsdn(tsd));
-	tsd_prefork(tsd);
 }
 
 #ifndef JEMALLOC_MUTEX_INIT_CB
@@ -110,8 +109,6 @@ _malloc_postfork(void)
 	assert(malloc_initialized());
 
 	tsd = tsd_fetch();
-
-	tsd_postfork_parent(tsd);
 
 	witness_postfork_parent(tsd_witness_tsdp_get(tsd));
 	/* Release all mutexes, now that fork() has completed. */
@@ -141,8 +138,6 @@ jemalloc_postfork_child(void) {
 
 	tsd = tsd_fetch();
 
-	tsd_postfork_child(tsd);
-
 	witness_postfork_child(tsd_witness_tsdp_get(tsd));
 	/* Release all mutexes, now that fork() has completed. */
 	stats_postfork_child(tsd_tsdn(tsd));
@@ -150,7 +145,10 @@ jemalloc_postfork_child(void) {
 		arena_t *arena;
 
 		if ((arena = arena_get(tsd_tsdn(tsd), i, false)) != NULL) {
-			arena_postfork_child(tsd_tsdn(tsd), arena);
+			cache_bin_array_descriptor_t *desc =
+			    tcache_postfork_arena_descriptor(
+			        tsd_tsdn(tsd), arena);
+			arena_postfork_child(tsd_tsdn(tsd), arena, desc);
 		}
 	}
 	prof_postfork_child(tsd_tsdn(tsd));

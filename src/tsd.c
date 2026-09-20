@@ -56,105 +56,10 @@ bool          tsd_booted = false;
 
 JEMALLOC_DIAGNOSTIC_POP
 
-/******************************************************************************/
-
-/* A list of all the tsds in the nominal state. */
-typedef ql_head(tsd_t) tsd_list_t;
-static tsd_list_t     tsd_nominal_tsds = ql_head_initializer(tsd_nominal_tsds);
-static malloc_mutex_t tsd_nominal_tsds_lock;
-
-/* How many slow-path-enabling features are turned on. */
-static atomic_u32_t tsd_global_slow_count = ATOMIC_INIT(0);
-
-static bool
-tsd_in_nominal_list(tsd_t *tsd) {
-	tsd_t *tsd_list;
-	bool   found = false;
-	/*
-	 * We don't know that tsd is nominal; it might not be safe to get data
-	 * out of it here.
-	 */
-	malloc_mutex_lock(TSDN_NULL, &tsd_nominal_tsds_lock);
-	ql_foreach (tsd_list, &tsd_nominal_tsds, TSD_MANGLE(tsd_link)) {
-		if (tsd == tsd_list) {
-			found = true;
-			break;
-		}
-	}
-	malloc_mutex_unlock(TSDN_NULL, &tsd_nominal_tsds_lock);
-	return found;
-}
-
-static void
-tsd_add_nominal(tsd_t *tsd) {
-	assert(!tsd_in_nominal_list(tsd));
-	assert(tsd_state_get(tsd) <= tsd_state_nominal_max);
-	ql_elm_new(tsd, TSD_MANGLE(tsd_link));
-	malloc_mutex_lock(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-	ql_tail_insert(&tsd_nominal_tsds, tsd, TSD_MANGLE(tsd_link));
-	malloc_mutex_unlock(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-}
-
-static void
-tsd_remove_nominal(tsd_t *tsd) {
-	assert(tsd_in_nominal_list(tsd));
-	assert(tsd_state_get(tsd) <= tsd_state_nominal_max);
-	malloc_mutex_lock(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-	ql_remove(&tsd_nominal_tsds, tsd, TSD_MANGLE(tsd_link));
-	malloc_mutex_unlock(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-}
-
-static void
-tsd_force_recompute(tsdn_t *tsdn) {
-	/*
-	 * The stores to tsd->state here need to synchronize with the exchange
-	 * in tsd_slow_update.
-	 */
-	atomic_fence(ATOMIC_RELEASE);
-	malloc_mutex_lock(tsdn, &tsd_nominal_tsds_lock);
-	tsd_t *remote_tsd;
-	ql_foreach (remote_tsd, &tsd_nominal_tsds, TSD_MANGLE(tsd_link)) {
-		assert(tsd_atomic_load(&remote_tsd->state, ATOMIC_RELAXED)
-		    <= tsd_state_nominal_max);
-		tsd_atomic_store(&remote_tsd->state,
-		    tsd_state_nominal_recompute, ATOMIC_RELAXED);
-		/* See comments in te_recompute_fast_threshold(). */
-		atomic_fence(ATOMIC_SEQ_CST);
-		te_next_event_fast_set_non_nominal(remote_tsd);
-	}
-	malloc_mutex_unlock(tsdn, &tsd_nominal_tsds_lock);
-}
-
-void
-tsd_global_slow_inc(tsdn_t *tsdn) {
-	atomic_fetch_add_u32(&tsd_global_slow_count, 1, ATOMIC_RELAXED);
-	/*
-	 * We unconditionally force a recompute, even if the global slow count
-	 * was already positive.  If we didn't, then it would be possible for us
-	 * to return to the user, have the user synchronize externally with some
-	 * other thread, and then have that other thread not have picked up the
-	 * update yet (since the original incrementing thread might still be
-	 * making its way through the tsd list).
-	 */
-	tsd_force_recompute(tsdn);
-}
-
-void
-tsd_global_slow_dec(tsdn_t *tsdn) {
-	atomic_fetch_sub_u32(&tsd_global_slow_count, 1, ATOMIC_RELAXED);
-	/* See the note in ..._inc(). */
-	tsd_force_recompute(tsdn);
-}
-
 static bool
 tsd_local_slow(tsd_t *tsd) {
 	return !tsd_tcache_enabled_get(tsd)
 	    || tsd_reentrancy_level_get(tsd) > 0;
-}
-
-bool
-tsd_global_slow(void) {
-	return atomic_load_u32(&tsd_global_slow_count, ATOMIC_RELAXED) > 0;
 }
 
 /******************************************************************************/
@@ -165,7 +70,7 @@ tsd_state_compute(tsd_t *tsd) {
 		return tsd_state_get(tsd);
 	}
 	/* We're in *a* nominal state; but which one? */
-	if (malloc_slow || tsd_local_slow(tsd) || tsd_global_slow()) {
+	if (malloc_slow || tsd_local_slow(tsd)) {
 		return tsd_state_nominal_slow;
 	} else {
 		return tsd_state_nominal;
@@ -174,53 +79,29 @@ tsd_state_compute(tsd_t *tsd) {
 
 void
 tsd_slow_update(tsd_t *tsd) {
-	uint8_t old_state;
-	do {
-		uint8_t new_state = tsd_state_compute(tsd);
-		old_state = tsd_atomic_exchange(
-		    &tsd->state, new_state, ATOMIC_ACQUIRE);
-	} while (old_state == tsd_state_nominal_recompute);
+	assert(!tsd_booted_get() || tsd_get(false) == tsd
+	    || (tsd_get_allocates() && tsd_get(false) == NULL));
+	tsd->state = tsd_state_compute(tsd);
 
 	te_recompute_fast_threshold(tsd);
 }
 
 void
 tsd_state_set(tsd_t *tsd, uint8_t new_state) {
-	/* Only the tsd module can change the state *to* recompute. */
-	assert(new_state != tsd_state_nominal_recompute);
-	uint8_t old_state = tsd_atomic_load(&tsd->state, ATOMIC_RELAXED);
-	if (old_state > tsd_state_nominal_max) {
+	assert(!tsd_booted_get() || tsd_get(false) == tsd
+	    || (tsd_get_allocates() && tsd_get(false) == NULL));
+	if (tsd->state <= tsd_state_nominal_max
+	    && new_state <= tsd_state_nominal_max) {
 		/*
-		 * Not currently in the nominal list, but it might need to be
-		 * inserted there.
+		 * We're transitioning from one nominal state to another.
+		 * Recompute the state from the underlying slow-path data rather
+		 * than trusting the caller's requested nominal state.
 		 */
-		assert(!tsd_in_nominal_list(tsd));
-		tsd_atomic_store(&tsd->state, new_state, ATOMIC_RELAXED);
-		if (new_state <= tsd_state_nominal_max) {
-			tsd_add_nominal(tsd);
-		}
+		tsd_slow_update(tsd);
 	} else {
-		/*
-		 * We're currently nominal.  If the new state is non-nominal,
-		 * great; we take ourselves off the list and just enter the new
-		 * state.
-		 */
-		assert(tsd_in_nominal_list(tsd));
-		if (new_state > tsd_state_nominal_max) {
-			tsd_remove_nominal(tsd);
-			tsd_atomic_store(
-			    &tsd->state, new_state, ATOMIC_RELAXED);
-		} else {
-			/*
-			 * This is the tricky case.  We're transitioning from
-			 * one nominal state to another.  The caller can't know
-			 * about any races that are occurring at the same time,
-			 * so we always have to recompute no matter what.
-			 */
-			tsd_slow_update(tsd);
-		}
+		tsd->state = new_state;
+		te_recompute_fast_threshold(tsd);
 	}
-	te_recompute_fast_threshold(tsd);
 }
 
 static void
@@ -251,7 +132,6 @@ tsd_data_init(tsd_t *tsd) {
 static void
 assert_tsd_data_cleanup_done(tsd_t *tsd) {
 	assert(!tsd_nominal(tsd));
-	assert(!tsd_in_nominal_list(tsd));
 	assert(*tsd_arenap_get_unsafe(tsd) == NULL);
 	assert(*tsd_iarenap_get_unsafe(tsd) == NULL);
 	assert(*tsd_tcache_enabledp_get_unsafe(tsd) == false);
@@ -284,13 +164,10 @@ tsd_fetch_slow(tsd_t *tsd, bool minimal) {
 
 	if (tsd_state_get(tsd) == tsd_state_nominal_slow) {
 		/*
-		 * On slow path but no work needed.  Note that we can't
-		 * necessarily *assert* that we're slow, because we might be
-		 * slow because of an asynchronous modification to global state,
-		 * which might be asynchronously modified *back*.
+		 * On slow path but no work needed.  Local slow-path state may
+		 * have changed since we computed the TSD state, so don't assert
+		 * on the underlying cause here.
 		 */
-	} else if (tsd_state_get(tsd) == tsd_state_nominal_recompute) {
-		tsd_slow_update(tsd);
 	} else if (tsd_state_get(tsd) == tsd_state_uninitialized) {
 		if (!minimal) {
 			if (tsd_booted) {
@@ -456,10 +333,6 @@ malloc_tsd_boot0(void) {
 #if defined(JEMALLOC_MALLOC_THREAD_CLEANUP) || defined(_WIN32)
 	ncleanups = 0;
 #endif
-	if (malloc_mutex_init(&tsd_nominal_tsds_lock, "tsd_nominal_tsds_lock",
-	        WITNESS_RANK_OMIT, malloc_mutex_rank_exclusive)) {
-		return NULL;
-	}
 	if (tsd_boot0()) {
 		return NULL;
 	}
@@ -548,23 +421,3 @@ tsd_init_finish(tsd_init_head_t *head, tsd_init_block_t *block) {
 	malloc_mutex_unlock(TSDN_NULL, &head->lock);
 }
 #endif
-
-void
-tsd_prefork(tsd_t *tsd) {
-	malloc_mutex_prefork(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-}
-
-void
-tsd_postfork_parent(tsd_t *tsd) {
-	malloc_mutex_postfork_parent(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-}
-
-void
-tsd_postfork_child(tsd_t *tsd) {
-	malloc_mutex_postfork_child(tsd_tsdn(tsd), &tsd_nominal_tsds_lock);
-	ql_new(&tsd_nominal_tsds);
-
-	if (tsd_state_get(tsd) <= tsd_state_nominal_max) {
-		tsd_add_nominal(tsd);
-	}
-}

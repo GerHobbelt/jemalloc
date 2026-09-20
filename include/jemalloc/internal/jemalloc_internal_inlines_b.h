@@ -8,6 +8,18 @@
 #include "jemalloc/internal/jemalloc_internal_inlines_a.h"
 
 static inline void
+thread_migrate_arena(tsd_t *tsd, arena_t *oldarena, arena_t *newarena) {
+	assert(oldarena != NULL);
+	assert(newarena != NULL);
+
+	arena_migrate(tsd, oldarena, newarena);
+	if (tcache_available(tsd)) {
+		tcache_arena_reassociate(tsd_tsdn(tsd),
+		    tsd_tcache_slowp_get(tsd), newarena);
+	}
+}
+
+static inline void
 percpu_arena_update(tsd_t *tsd, unsigned cpu) {
 	assert(have_percpu_arena);
 	arena_t *oldarena = tsd_arena_get(tsd);
@@ -19,15 +31,7 @@ percpu_arena_update(tsd_t *tsd, unsigned cpu) {
 		arena_t *newarena = arena_get(tsd_tsdn(tsd), newind, true);
 		assert(newarena != NULL);
 
-		/* Set new arena/tcache associations. */
-		arena_migrate(tsd, oldarena, newarena);
-		tcache_t *tcache = tcache_get(tsd);
-		if (tcache != NULL) {
-			tcache_slow_t *tcache_slow = tsd_tcache_slowp_get(tsd);
-			assert(tcache_slow->arena != NULL);
-			tcache_arena_reassociate(
-			    tsd_tsdn(tsd), tcache_slow, tcache, newarena);
-		}
+		thread_migrate_arena(tsd, oldarena, newarena);
 	}
 }
 
@@ -51,18 +55,17 @@ arena_choose_impl(tsd_t *tsd, arena_t *arena, bool internal) {
 		assert(ret);
 		if (tcache_available(tsd)) {
 			tcache_slow_t *tcache_slow = tsd_tcache_slowp_get(tsd);
-			tcache_t      *tcache = tsd_tcachep_get(tsd);
 			if (tcache_slow->arena != NULL) {
 				/* See comments in tsd_tcache_data_init().*/
 				assert(tcache_slow->arena
 				    == arena_get(tsd_tsdn(tsd), 0, false));
 				if (tcache_slow->arena != ret) {
 					tcache_arena_reassociate(tsd_tsdn(tsd),
-					    tcache_slow, tcache, ret);
+					    tcache_slow, ret);
 				}
 			} else {
 				tcache_arena_associate(
-				    tsd_tsdn(tsd), tcache_slow, tcache, ret);
+				    tsd_tsdn(tsd), tcache_slow, ret);
 			}
 		}
 	}

@@ -648,6 +648,84 @@ TEST_BEGIN(test_bin_dalloc_slab_prepare) {
 TEST_END
 
 /*
+ * Test that bin_stats_nrequests_add accumulates under the bin lock.
+ */
+TEST_BEGIN(test_bin_stats_nrequests_add) {
+	tsdn_t *tsdn = tsdn_fetch();
+	bin_t bin;
+
+	bin_init(&bin);
+	if (config_stats) {
+		expect_u64_eq(bin.stats.nrequests, 0,
+		    "Fresh bin should have zero nrequests");
+	}
+
+	/* Single add. */
+	bin_stats_nrequests_add(tsdn, &bin, 7);
+	if (config_stats) {
+		expect_u64_eq(bin.stats.nrequests, 7,
+		    "nrequests should equal the added value");
+	}
+
+	/* Adds accumulate. */
+	bin_stats_nrequests_add(tsdn, &bin, 3);
+	if (config_stats) {
+		expect_u64_eq(bin.stats.nrequests, 10,
+		    "nrequests should accumulate across calls");
+	}
+
+	/* Adding zero is a no-op. */
+	bin_stats_nrequests_add(tsdn, &bin, 0);
+	if (config_stats) {
+		expect_u64_eq(bin.stats.nrequests, 10,
+		    "Adding zero should not change nrequests");
+	}
+}
+TEST_END
+
+/*
+ * Test bin_current_slab_addr returns slabcur first, then falls back to the
+ * first nonfull slab, and NULL when both are empty.
+ */
+TEST_BEGIN(test_bin_current_slab_addr) {
+	tsdn_t *tsdn = tsdn_fetch();
+	bin_t bin;
+	szind_t binind = 0;
+	edata_t slab1, slab2;
+
+	bin_init(&bin);
+
+	/* Empty bin: returns NULL. */
+	expect_ptr_null(bin_current_slab_addr(tsdn, &bin),
+	    "Empty bin should return NULL");
+
+	create_mock_slab(&slab1, binind, 0);
+	create_mock_slab(&slab2, binind, 1);
+
+	/* Only nonfull set: returns first-of-nonfull addr. */
+	bin_slabs_nonfull_insert(&bin, &slab1);
+	expect_ptr_eq(bin_current_slab_addr(tsdn, &bin),
+	    edata_addr_get(&slab1),
+	    "Should return nonfull-first addr when slabcur is NULL");
+
+	/* slabcur takes precedence over nonfull. */
+	bin.slabcur = &slab2;
+	expect_ptr_eq(bin_current_slab_addr(tsdn, &bin),
+	    edata_addr_get(&slab2),
+	    "Should return slabcur addr when set");
+
+	/* Only slabcur set, no nonfull. */
+	bin_slabs_nonfull_remove(&bin, &slab1);
+	expect_ptr_eq(bin_current_slab_addr(tsdn, &bin),
+	    edata_addr_get(&slab2),
+	    "Should still return slabcur addr after nonfull cleared");
+
+	free(edata_addr_get(&slab1));
+	free(edata_addr_get(&slab2));
+}
+TEST_END
+
+/*
  * Test bin_shard_sizes_boot and bin_update_shard_size.
  */
 TEST_BEGIN(test_bin_shard_sizes) {
@@ -819,6 +897,8 @@ main(void) {
 	    test_bin_lower_slab_replaces_slabcur,
 	    test_bin_lower_slab_inserts_nonfull,
 	    test_bin_dalloc_slab_prepare,
+	    test_bin_stats_nrequests_add,
+	    test_bin_current_slab_addr,
 	    test_bin_shard_sizes,
 	    test_bin_alloc_free_cycle,
 	    test_bin_multi_size_class);

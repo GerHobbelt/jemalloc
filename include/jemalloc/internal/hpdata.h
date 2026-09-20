@@ -27,7 +27,7 @@
  */
 #define PSSET_ENUMERATE_MAX_NUM 32
 typedef struct hpdata_s hpdata_t;
-ph_structs(hpdata_age_heap, hpdata_t, PSSET_ENUMERATE_MAX_NUM);
+ph_structs(hpdata_age_heap, hpdata_t, PSSET_ENUMERATE_MAX_NUM)
 struct hpdata_s {
 	/*
 	 * We likewise follow the edata convention of mangling names and forcing
@@ -136,7 +136,7 @@ TYPED_LIST(hpdata_empty_list, hpdata_t, ql_link_empty)
 TYPED_LIST(hpdata_purge_list, hpdata_t, ql_link_purge)
 TYPED_LIST(hpdata_hugify_list, hpdata_t, ql_link_hugify)
 
-ph_proto(, hpdata_age_heap, hpdata_t);
+ph_proto(, hpdata_age_heap, hpdata_t)
 
 static inline void *
 hpdata_addr_get(const hpdata_t *hpdata) {
@@ -431,6 +431,60 @@ void hpdata_init(hpdata_t *hpdata, void *addr, uint64_t age, bool is_huge);
  */
 void *hpdata_reserve_alloc(hpdata_t *hpdata, size_t sz);
 void  hpdata_unreserve(hpdata_t *hpdata, void *addr, size_t sz);
+
+/*
+ * For buffering extent allocations we will perform out of
+ * a single ps.
+ */
+typedef struct hpdata_alloc_offset_s hpdata_alloc_offset_t;
+struct hpdata_alloc_offset_s {
+	/*
+	 * Index on the active bitmap for the extent to allocate.
+	 * It is used to know which bits we'll need to set when we perform
+	 * the allocation. They are in the range [index, index + npages).
+	 */
+	size_t index;
+
+	/*
+	 * The length of the free bit range on the active bitmap,
+	 * starting at index, before setting the bits in the range
+	 * [index, index + npages).
+	 * It is used to determine whether one of the allocations
+	 * used up the longest free range on the active bitmap.
+	 * If it did, we might have to update the longest free range
+	 * metadata on the hpdata.
+	 */
+	size_t len_before;
+
+	/*
+	 * The length of the longest free range in the range [0, index).
+	 * When we need to update the longest free range on the hpdata,
+	 * the new value is either longest_len (the max up to index),
+	 * len_before - npages (what's left after we carve up the free
+	 * range starting at index), or the max in the range
+	 * [index + len_before, HUGEPAGE_PAGES), whichever is greater.
+	 */
+	size_t longest_len;
+};
+
+/*
+ * Given an hpdata that can serve an allocation request of size sz,
+ * find between one and max_nallocs offsets that can satisfy such
+ * an allocation request and buffer them in offsets (without actually
+ * reserving any space or updating hpdata). Return the number
+ * of offsets discovered.
+ */
+size_t hpdata_find_alloc_offsets(hpdata_t *hpdata, size_t sz,
+    hpdata_alloc_offset_t *offsets, size_t max_nallocs);
+/* Reserve the allocation for the given offset. */
+void *hpdata_reserve_alloc_offset(
+    hpdata_t *hpdata, size_t sz, hpdata_alloc_offset_t *offset);
+/*
+ * Do any work that needs to be done after performing allocations
+ * from a single hpdata.
+ */
+void hpdata_post_reserve_alloc_offsets(hpdata_t *hpdata, size_t sz,
+    hpdata_alloc_offset_t *offsets, size_t nallocs);
 
 /*
  * The hpdata_purge_prepare_t allows grabbing the metadata required to purge

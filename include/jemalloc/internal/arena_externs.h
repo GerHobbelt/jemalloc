@@ -7,7 +7,6 @@
 #include "jemalloc/internal/div.h"
 #include "jemalloc/internal/emap.h"
 #include "jemalloc/internal/extent_dss.h"
-#include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/pages.h"
 #include "jemalloc/internal/stats.h"
 
@@ -86,8 +85,7 @@ void  arena_ptr_array_flush(tsd_t *tsd, szind_t binind,
 bool  arena_ralloc_no_move(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size,
      size_t extra, bool zero, size_t *newsize);
 void *arena_ralloc(tsdn_t *tsdn, arena_t *arena, void *ptr, size_t oldsize,
-    size_t size, size_t alignment, bool zero, bool slab, tcache_t *tcache,
-    hook_ralloc_args_t *hook_args);
+    size_t size, size_t alignment, bool zero, bool slab, tcache_t *tcache);
 dss_prec_t      arena_dss_prec_get(const arena_t *arena);
 ehooks_t       *arena_get_ehooks(const arena_t *arena);
 extent_hooks_t *arena_set_extent_hooks(
@@ -111,6 +109,14 @@ arena_t *arena_choose_huge(tsd_t *tsd);
 size_t arena_fill_small_fresh(tsdn_t *tsdn, arena_t *arena, szind_t binind,
     void **ptrs, size_t nfill, bool zero);
 bool   arena_boot(sc_data_t *sc_data, base_t *base, bool hpa);
+void  *arena_locality_hint(tsdn_t *tsdn, arena_t *arena, szind_t szind);
+void   arena_cache_bin_array_register(tsdn_t *tsdn, arena_t *arena,
+       cache_bin_array_descriptor_t *desc);
+void   arena_cache_bin_array_unregister(tsdn_t *tsdn, arena_t *arena,
+       cache_bin_array_descriptor_t *desc);
+void   arena_cache_bin_array_postfork_child(arena_t *arena,
+       cache_bin_array_descriptor_t *desc_or_null);
+void   arena_cache_bins_stats_merge(tsdn_t *tsdn, arena_t *arena);
 void   arena_prefork0(tsdn_t *tsdn, arena_t *arena);
 void   arena_prefork1(tsdn_t *tsdn, arena_t *arena);
 void   arena_prefork2(tsdn_t *tsdn, arena_t *arena);
@@ -121,6 +127,7 @@ void   arena_prefork6(tsdn_t *tsdn, arena_t *arena);
 void   arena_prefork7(tsdn_t *tsdn, arena_t *arena);
 void   arena_prefork8(tsdn_t *tsdn, arena_t *arena);
 void   arena_postfork_parent(tsdn_t *tsdn, arena_t *arena);
-void   arena_postfork_child(tsdn_t *tsdn, arena_t *arena);
+void   arena_postfork_child(tsdn_t *tsdn, arena_t *arena,
+       cache_bin_array_descriptor_t *surviving_desc);
 
 #endif /* JEMALLOC_INTERNAL_ARENA_EXTERNS_H */
