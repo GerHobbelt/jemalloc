@@ -662,10 +662,6 @@ pages_purge_process_madvise_impl(
 		return true;
 	}
 
-	/*
-	 * TODO: remove this save/restore of errno after supporting errno
-	 * preservation for free() call properly.
-	 */
 	int    saved_errno = get_errno();
 	size_t purged_bytes = (size_t)syscall(JE_SYS_PROCESS_MADVISE_NR,
 	    PIDFD_SELF, (struct iovec *)vec, vec_len, MADV_DONTNEED, 0);

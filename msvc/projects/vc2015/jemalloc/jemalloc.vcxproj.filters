@@ -31,6 +31,9 @@
     <ClCompile Include="..\..\..\..\src\ckh.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\..\src\conf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\..\src\counter.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -200,6 +203,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\..\src\san_bump.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\src\arenas_management.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\src\jemalloc_fork.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\src\jemalloc_init.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

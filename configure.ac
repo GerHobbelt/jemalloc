@@ -158,29 +158,27 @@ AC_SUBST([abs_objroot])
 
 dnl Munge install path variables.
 case "$prefix" in
-   *\ * ) AC_MSG_ERROR([Prefix should not contain spaces]) ;;
    "NONE" ) prefix="/usr/local" ;;
 esac
 case "$exec_prefix" in
-   *\ * ) AC_MSG_ERROR([Exec prefix should not contain spaces]) ;;
    "NONE" ) exec_prefix=$prefix ;;
 esac
 PREFIX=$prefix
 AC_SUBST([PREFIX])
-BINDIR=`eval echo $bindir`
-BINDIR=`eval echo $BINDIR`
+BINDIR=`eval echo "\"$bindir\""`
+BINDIR=`eval echo "\"$BINDIR\""`
 AC_SUBST([BINDIR])
-INCLUDEDIR=`eval echo $includedir`
-INCLUDEDIR=`eval echo $INCLUDEDIR`
+INCLUDEDIR=`eval echo "\"$includedir\""`
+INCLUDEDIR=`eval echo "\"$INCLUDEDIR\""`
 AC_SUBST([INCLUDEDIR])
-LIBDIR=`eval echo $libdir`
-LIBDIR=`eval echo $LIBDIR`
+LIBDIR=`eval echo "\"$libdir\""`
+LIBDIR=`eval echo "\"$LIBDIR\""`
 AC_SUBST([LIBDIR])
-DATADIR=`eval echo $datadir`
-DATADIR=`eval echo $DATADIR`
+DATADIR=`eval echo "\"$datadir\""`
+DATADIR=`eval echo "\"$DATADIR\""`
 AC_SUBST([DATADIR])
-MANDIR=`eval echo $mandir`
-MANDIR=`eval echo $MANDIR`
+MANDIR=`eval echo "\"$mandir\""`
+MANDIR=`eval echo "\"$MANDIR\""`
 AC_SUBST([MANDIR])
 
 dnl Support for building documentation.
@@ -376,7 +374,30 @@ fi
 if test "x$enable_cxx" = "x1"; then
   AC_DEFINE([JEMALLOC_ENABLE_CXX], [ ], [ ])
 fi
+if test "x$enable_cxx" = "x1"; then
+  dnl Now check whether the C++ compiler has exceptions enabled.
+  AC_LANG_PUSH([C++])
+  SAVED_CXXFLAGS="${CXXFLAGS}"
+  CXXFLAGS="${CXXFLAGS} ${EXTRA_CXXFLAGS}"
+  JE_COMPILABLE([C++ exception support], [
+#include <new>
+], [
+	try {
+		throw std::bad_alloc();
+	} catch (const std::bad_alloc &) {
+	}
+], [je_cv_cxx_exceptions])
+  CXXFLAGS="${SAVED_CXXFLAGS}"
+  AC_LANG_POP([C++])
+  if test "x${je_cv_cxx_exceptions}" = "xyes" ; then
+    AC_DEFINE([JEMALLOC_HAVE_CXX_EXCEPTIONS], [ ], [ ])
+    enable_cxx_exceptions="1"
+  else
+    enable_cxx_exceptions="0"
+  fi
+fi
 AC_SUBST([enable_cxx])
+AC_SUBST([enable_cxx_exceptions])
 AC_SUBST([CONFIGURE_CXXFLAGS])
 AC_SUBST([SPECIFIED_CXXFLAGS])
 AC_SUBST([EXTRA_CXXFLAGS])
@@ -2040,6 +2061,9 @@ if test "x${LG_PAGE}" != "xundefined" ; then
    AC_DEFINE_UNQUOTED([LG_PAGE], [$LG_PAGE], [ ])
 else
    AC_MSG_ERROR([cannot determine value for LG_PAGE])
+fi
+if test "${LG_PAGE}" -lt 8 ; then
+   AC_MSG_ERROR([LG_PAGE must be at least 8 (PAGE >= 256)])
 fi
 
 AC_ARG_WITH([lg_hugepage],

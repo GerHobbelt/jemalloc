@@ -18,7 +18,7 @@ JEMALLOC_DIAGNOSTIC_DISABLE_SPURIOUS
 /* Data. */
 
 /*
- * Define names for both unininitialized and initialized phases, so that
+ * Define names for both uninitialized and initialized phases, so that
  * options and mallctl processing are straightforward.
  */
 const char *const percpu_arena_mode_names[] = {
@@ -44,10 +44,10 @@ static unsigned nbins_total;
 
 /*
  * a0 is used to handle huge requests before malloc init completes. After
- * that,the huge_arena_ind is updated to point to the actual huge arena,
+ * that, the huge_arena_ind is updated to point to the actual huge arena,
  * which is the last one of the auto arenas.
  */
-unsigned  huge_arena_ind = 0;
+static unsigned huge_arena_ind = 0;
 bool      opt_huge_arena_pac_thp = false;
 pac_thp_t huge_arena_pac_thp = {.thp_madvise = false,
     .auto_thp_switched = false,
@@ -343,7 +343,8 @@ arena_extent_alloc_large(
 }
 
 void
-arena_extent_dalloc_large_prep(tsdn_t *tsdn, arena_t *arena, edata_t *edata) {
+arena_extent_dalloc_large_prep(tsdn_t *tsdn, arena_t *arena,
+    const edata_t *edata) {
 	if (config_stats) {
 		arena_large_dalloc_stats_update(
 		    tsdn, arena, edata_usize_get(edata));
@@ -352,7 +353,7 @@ arena_extent_dalloc_large_prep(tsdn_t *tsdn, arena_t *arena, edata_t *edata) {
 
 void
 arena_extent_ralloc_large_shrink(
-    tsdn_t *tsdn, arena_t *arena, edata_t *edata, size_t oldusize) {
+    tsdn_t *tsdn, arena_t *arena, const edata_t *edata, size_t oldusize) {
 	size_t usize = edata_usize_get(edata);
 
 	if (config_stats) {
@@ -362,7 +363,7 @@ arena_extent_ralloc_large_shrink(
 
 void
 arena_extent_ralloc_large_expand(
-    tsdn_t *tsdn, arena_t *arena, edata_t *edata, size_t oldusize) {
+    tsdn_t *tsdn, arena_t *arena, const edata_t *edata, size_t oldusize) {
 	size_t usize = edata_usize_get(edata);
 
 	if (config_stats) {
@@ -796,6 +797,8 @@ arena_prepare_base_deletion(tsd_t *tsd, base_t *base_to_destroy) {
 		    tsd, &pac->ecache_muzzy.mtx, delayed_mtx, &n_delayed);
 		arena_prepare_base_deletion_sync(
 		    tsd, &pac->ecache_retained.mtx, delayed_mtx, &n_delayed);
+		arena_prepare_base_deletion_sync(
+		    tsd, &pac->ecache_pinned.mtx, delayed_mtx, &n_delayed);
 	}
 	arena_prepare_base_deletion_sync_finish(tsd, delayed_mtx, n_delayed);
 }
@@ -1662,7 +1665,7 @@ arena_ralloc(tsdn_t *tsdn, arena_t *arena, void *ptr, size_t oldsize,
 }
 
 ehooks_t *
-arena_get_ehooks(arena_t *arena) {
+arena_get_ehooks(const arena_t *arena) {
 	return base_ehooks_get(arena->base);
 }
 
@@ -1685,7 +1688,7 @@ arena_set_extent_hooks(
 }
 
 dss_prec_t
-arena_dss_prec_get(arena_t *arena) {
+arena_dss_prec_get(const arena_t *arena) {
 	return (dss_prec_t)atomic_load_u(&arena->dss_prec, ATOMIC_ACQUIRE);
 }
 
@@ -1699,8 +1702,9 @@ arena_dss_prec_set(arena_t *arena, dss_prec_t dss_prec) {
 }
 
 void
-arena_name_get(arena_t *arena, char *name) {
-	char *end = (char *)memchr((void *)arena->name, '\0', ARENA_NAME_LEN);
+arena_name_get(const arena_t *arena, char *name) {
+	const char *end = (const char *)memchr(
+	    arena->name, '\0', ARENA_NAME_LEN);
 	assert(end != NULL);
 	size_t len = (uintptr_t)end - (uintptr_t)arena->name + 1;
 	assert(len > 0 && len <= ARENA_NAME_LEN);
@@ -1751,7 +1755,7 @@ arena_retain_grow_limit_get_set(
 }
 
 unsigned
-arena_nthreads_get(arena_t *arena, bool internal) {
+arena_nthreads_get(const arena_t *arena, bool internal) {
 	return atomic_load_u(&arena->nthreads[internal], ATOMIC_RELAXED);
 }
 
@@ -1954,9 +1958,6 @@ arena_init_huge(tsdn_t *tsdn, arena_t *a0) {
 		huge_arena_ind = narenas_total_get();
 		assert(huge_arena_ind != 0);
 		oversize_threshold = opt_oversize_threshold;
-		/* a0 init happened before malloc_conf_init. */
-		atomic_store_zu(&a0->pa_shard.pac.oversize_threshold,
-		    oversize_threshold, ATOMIC_RELAXED);
 		/* Initialize huge_arena_pac_thp fields. */
 		base_t *b0 = a0->base;
 		/* Make sure that b0 thp auto-switch won't happen concurrently here. */
@@ -1974,7 +1975,16 @@ arena_init_huge(tsdn_t *tsdn, arena_t *a0) {
 		huge_enabled = true;
 	}
 
+	/* a0 init happened before malloc_conf_init. */
+	atomic_store_zu(&a0->pa_shard.pac.oversize_threshold,
+	    oversize_threshold, ATOMIC_RELAXED);
+
 	return huge_enabled;
+}
+
+bool
+arena_ind_is_huge(unsigned ind) {
+	return huge_arena_ind != 0 && ind == huge_arena_ind;
 }
 
 bool

@@ -3,6 +3,7 @@
 
 #include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/arena_inlines_a.h"
+#include "jemalloc/internal/arenas_management.h"
 #include "jemalloc/internal/extent.h"
 #include "jemalloc/internal/jemalloc_internal_inlines_a.h"
 
@@ -97,7 +98,7 @@ arena_ichoose(tsd_t *tsd, arena_t *arena) {
 }
 
 static inline bool
-arena_is_auto(arena_t *arena) {
+arena_is_auto(const arena_t *arena) {
 	assert(narenas_auto > 0);
 
 	return (arena_ind_get(arena) < manual_arena_base);
