@@ -52,13 +52,6 @@ hpa_supported(void) {
 	if (LG_SIZEOF_PTR != 3) {
 		return false;
 	}
-	/*
-	 * If we couldn't detect the value of HUGEPAGE, HUGEPAGE_PAGES becomes
-	 * this sentinel value -- see the comment in pages.h.
-	 */
-	if (HUGEPAGE_PAGES == 1) {
-		return false;
-	}
 	/* As mentioned in pages.h, do not support If HUGEPAGE is too large. */
 	if (hpa_hugepage_size_exceeds_limit()) {
 		return false;
@@ -120,8 +113,6 @@ hpa_shard_init(tsdn_t *tsdn, hpa_shard_t *shard, hpa_central_t *central,
 	    sizeof(shard->stats.hpa_alloc_pages_per_ps));
 	memset(shard->stats.hpa_alloc_extents_per_ps, 0,
 	    sizeof(shard->stats.hpa_alloc_extents_per_ps));
-	memset(shard->stats.hpa_alloc_total_elapsed_ns_per_ps, 0,
-	    sizeof(shard->stats.hpa_alloc_total_elapsed_ns_per_ps));
 
 	err = sec_init(tsdn, &shard->sec, base, sec_opts);
 	if (err) {
@@ -156,8 +147,6 @@ hpa_shard_nonderived_stats_accum(
 		    src->hpa_alloc_pages_per_ps[i];
 		dst->hpa_alloc_extents_per_ps[i] +=
 		    src->hpa_alloc_extents_per_ps[i];
-		dst->hpa_alloc_total_elapsed_ns_per_ps[i] +=
-		    src->hpa_alloc_total_elapsed_ns_per_ps[i];
 	}
 }
 
@@ -713,9 +702,6 @@ hpa_try_alloc_from_one_ps(tsdn_t *tsdn, hpa_shard_t *shard, size_t size,
 	assert(*oom == false);
 	malloc_mutex_assert_owner(tsdn, &shard->mtx);
 
-	nstime_t start;
-	nstime_init_update(&start);
-
 	hpdata_t *ps = psset_pick_alloc(&shard->psset, size);
 	if (ps == NULL) {
 		return 0;
@@ -754,12 +740,10 @@ hpa_try_alloc_from_one_ps(tsdn_t *tsdn, hpa_shard_t *shard, size_t size,
 	hpa_update_purge_hugify_eligibility(tsdn, shard, ps);
 	psset_update_end(&shard->psset, ps);
 
-	const uint64_t elapsed_ns = nstime_ns_since(&start);
 	assert(nsuccess <= SEC_MAX_NALLOCS);
 	shard->stats.hpa_alloc_pages_per_ps[nsuccess] += nsuccess
 	    * (size >> LG_PAGE);
 	shard->stats.hpa_alloc_extents_per_ps[nsuccess] += 1;
-	shard->stats.hpa_alloc_total_elapsed_ns_per_ps[nsuccess] += elapsed_ns;
 
 	return nsuccess;
 }

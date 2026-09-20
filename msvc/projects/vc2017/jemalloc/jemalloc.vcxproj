@@ -61,7 +61,6 @@
     <ClCompile Include="..\..\..\..\src\extent_dss.c" />
     <ClCompile Include="..\..\..\..\src\extent_mmap.c" />
     <ClCompile Include="..\..\..\..\src\fxp.c" />
-    <ClCompile Include="..\..\..\..\src\hook.c" />
     <ClCompile Include="..\..\..\..\src\hpa.c" />
     <ClCompile Include="..\..\..\..\src\hpa_central.c" />
     <ClCompile Include="..\..\..\..\src\hpa_hooks.c" />
@@ -82,6 +81,7 @@
     <ClCompile Include="..\..\..\..\src\pac.c" />
     <ClCompile Include="..\..\..\..\src\pages.c" />
     <ClCompile Include="..\..\..\..\src\peak_event.c" />
+    <ClCompile Include="..\..\..\..\src\percpu_arena.c" />
     <ClCompile Include="..\..\..\..\src\prof.c" />
     <ClCompile Include="..\..\..\..\src\prof_data.c" />
     <ClCompile Include="..\..\..\..\src\prof_log.c" />

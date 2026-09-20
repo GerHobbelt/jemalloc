@@ -12,6 +12,7 @@
 #include "jemalloc/internal/jemalloc_internal_types.h"
 #include "jemalloc/internal/large.h"
 #include "jemalloc/internal/mutex.h"
+#include "jemalloc/internal/percpu_arena.h"
 #include "jemalloc/internal/prof.h"
 #include "jemalloc/internal/rtree.h"
 #include "jemalloc/internal/safety_check.h"
@@ -127,7 +128,7 @@ arena_choose_impl(tsd_t *tsd, arena_t *arena, bool internal) {
 	 */
 	if (have_percpu_arena && PERCPU_ARENA_ENABLED(opt_percpu_arena)
 	    && !internal
-	    && (arena_ind_get(ret) < percpu_arena_ind_limit(opt_percpu_arena))
+	    && (arena_ind_get(ret) < percpu_arena_ind_limit())
 	    && (ret->last_thd != tsd_tsdn(tsd))) {
 		unsigned ind = percpu_arena_choose();
 		if (arena_ind_get(ret) != ind) {

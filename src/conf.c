@@ -13,6 +13,7 @@
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/nstime.h"
+#include "jemalloc/internal/percpu_arena.h"
 #include "jemalloc/internal/prof.h"
 #include "jemalloc/internal/san.h"
 #include "jemalloc/internal/sc.h"
@@ -219,24 +220,28 @@ malloc_abort_invalid_conf(void) {
 JET_EXTERN void
 conf_error(
     const char *msg, const char *k, size_t klen, const char *v, size_t vlen) {
-	malloc_printf(
-	    "<jemalloc>: %s: %.*s:%.*s\n", msg, (int)klen, k, (int)vlen, v);
-	/* If abort_conf is set, error out after processing all options. */
 	const char *experimental = "experimental_";
 	if (strncmp(k, experimental, strlen(experimental)) == 0) {
-		/* However, tolerate experimental features. */
+		/* Silently tolerate experimental features. */
 		return;
 	}
 	const char *deprecated[] = {
-	    "hpa_sec_bytes_after_flush", "hpa_sec_batch_fill_extra"};
+	    "hpa_sec_bytes_after_flush", "hpa_sec_batch_fill_extra",
+	    "lg_tcache_nslots_mul", "tcache_nslots_small_min",
+	    "tcache_nslots_small_max", "tcache_nslots_large",
+	    "tcache_gc_delay_bytes", "lg_tcache_flush_small_div",
+	    "lg_tcache_flush_large_div"};
 	const size_t deprecated_cnt = (sizeof(deprecated)
 	    / sizeof(deprecated[0]));
 	for (size_t i = 0; i < deprecated_cnt; ++i) {
 		if (strncmp(k, deprecated[i], strlen(deprecated[i])) == 0) {
-			/* Tolerate deprecated features. */
+			/* Silently tolerate deprecated features. */
 			return;
 		}
 	}
+	malloc_printf(
+	    "<jemalloc>: %s: %.*s:%.*s\n", msg, (int)klen, k, (int)vlen, v);
+	/* If abort_conf is set, error out after processing all options. */
 	had_conf_error = true;
 }
 
@@ -330,34 +335,26 @@ obtain_malloc_conf(unsigned which_source, char readlink_buf[PATH_MAX + 1]) {
 		ret = NULL;
 		break;
 #else
-		ssize_t linklen = 0;
-#	ifndef _WIN32
 		int         saved_errno = errno;
 		const char *linkname =
-#		ifdef JEMALLOC_PREFIX
+#	ifdef JEMALLOC_PREFIX
 		    "/etc/" JEMALLOC_PREFIX "malloc.conf"
-#		else
+#	else
 		    "/etc/malloc.conf"
-#		endif
+#	endif
 		    ;
 
 		/*
 		 * Try to use the contents of the "/etc/malloc.conf" symbolic
 		 * link's name.
 		 */
-#		ifndef JEMALLOC_READLINKAT
-		linklen = readlink(linkname, readlink_buf, PATH_MAX);
-#		else
-		linklen = readlinkat(
-		    AT_FDCWD, linkname, readlink_buf, PATH_MAX);
-#		endif
+		ssize_t linklen = os_readlink(linkname, readlink_buf, PATH_MAX);
 		if (linklen == -1) {
 			/* No configuration specified. */
 			linklen = 0;
 			/* Restore errno. */
 			set_errno(saved_errno);
 		}
-#	endif
 		readlink_buf[linklen] = '\0';
 		ret = readlink_buf;
 		break;
@@ -732,8 +729,6 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 				CONF_HANDLE_BOOL(opt_xmalloc, "xmalloc")
 			}
 
-			CONF_HANDLE_BOOL(opt_experimental_tcache_gc,
-			    "experimental_tcache_gc")
 			CONF_HANDLE_BOOL(opt_tcache, "tcache")
 			CONF_HANDLE_SIZE_T(opt_tcache_max, "tcache_max", 0,
 			    TCACHE_MAXCLASS_LIMIT, CONF_DONT_CHECK_MIN,
@@ -753,36 +748,10 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 				}
 				CONF_CONTINUE;
 			}
-			/*
-			 * Anyone trying to set a value outside -16 to 16 is
-			 * deeply confused.
-			 */
-			CONF_HANDLE_SSIZE_T(opt_lg_tcache_nslots_mul,
-			    "lg_tcache_nslots_mul", -16, 16)
-			/* Ditto with values past 2048. */
-			CONF_HANDLE_UNSIGNED(opt_tcache_nslots_small_min,
-			    "tcache_nslots_small_min", 1, 2048, CONF_CHECK_MIN,
-			    CONF_CHECK_MAX, /* clip */ true)
-			CONF_HANDLE_UNSIGNED(opt_tcache_nslots_small_max,
-			    "tcache_nslots_small_max", 1, 2048, CONF_CHECK_MIN,
-			    CONF_CHECK_MAX, /* clip */ true)
-			CONF_HANDLE_UNSIGNED(opt_tcache_nslots_large,
-			    "tcache_nslots_large", 1, 2048, CONF_CHECK_MIN,
-			    CONF_CHECK_MAX, /* clip */ true)
 			CONF_HANDLE_SIZE_T(opt_tcache_gc_incr_bytes,
 			    "tcache_gc_incr_bytes", 1024, SIZE_T_MAX,
 			    CONF_CHECK_MIN, CONF_DONT_CHECK_MAX,
 			    /* clip */ true)
-			CONF_HANDLE_SIZE_T(opt_tcache_gc_delay_bytes,
-			    "tcache_gc_delay_bytes", 0, SIZE_T_MAX,
-			    CONF_DONT_CHECK_MIN, CONF_DONT_CHECK_MAX,
-			    /* clip */ false)
-			CONF_HANDLE_UNSIGNED(opt_lg_tcache_flush_small_div,
-			    "lg_tcache_flush_small_div", 1, 16, CONF_CHECK_MIN,
-			    CONF_CHECK_MAX, /* clip */ true)
-			CONF_HANDLE_UNSIGNED(opt_lg_tcache_flush_large_div,
-			    "lg_tcache_flush_large_div", 1, 16, CONF_CHECK_MIN,
-			    CONF_CHECK_MAX, /* clip */ true)
 			CONF_HANDLE_UNSIGNED(opt_debug_double_free_max_scan,
 			    "debug_double_free_max_scan", 0, UINT_MAX,
 			    CONF_DONT_CHECK_MIN, CONF_DONT_CHECK_MAX,

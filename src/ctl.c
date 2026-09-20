@@ -168,17 +168,9 @@ CTL_PROTO(opt_junk)
 CTL_PROTO(opt_zero)
 CTL_PROTO(opt_utrace)
 CTL_PROTO(opt_xmalloc)
-CTL_PROTO(opt_experimental_tcache_gc)
 CTL_PROTO(opt_tcache)
 CTL_PROTO(opt_tcache_max)
-CTL_PROTO(opt_tcache_nslots_small_min)
-CTL_PROTO(opt_tcache_nslots_small_max)
-CTL_PROTO(opt_tcache_nslots_large)
-CTL_PROTO(opt_lg_tcache_nslots_mul)
 CTL_PROTO(opt_tcache_gc_incr_bytes)
-CTL_PROTO(opt_tcache_gc_delay_bytes)
-CTL_PROTO(opt_lg_tcache_flush_small_div)
-CTL_PROTO(opt_lg_tcache_flush_large_div)
 CTL_PROTO(opt_thp)
 CTL_PROTO(opt_lg_extent_max_active_fit)
 CTL_PROTO(opt_prof)
@@ -347,7 +339,6 @@ CTL_PROTO(stats_arenas_i_hpa_shard_alloc_j_extents)
 CTL_PROTO(stats_arenas_i_hpa_shard_alloc_j_ps)
 CTL_PROTO(stats_arenas_i_hpa_shard_alloc_j_pages_per_ps)
 CTL_PROTO(stats_arenas_i_hpa_shard_alloc_j_extents_per_ps)
-CTL_PROTO(stats_arenas_i_hpa_shard_alloc_j_total_elapsed_ns_per_ps)
 INDEX_PROTO(stats_arenas_i_hpa_shard_alloc_j)
 
 CTL_PROTO(stats_arenas_i_nthreads)
@@ -546,17 +537,9 @@ static const ctl_named_node_t opt_node[] = {{NAME("abort"), CTL(opt_abort)},
     {NAME("stats_interval_opts"), CTL(opt_stats_interval_opts)},
     {NAME("junk"), CTL(opt_junk)}, {NAME("zero"), CTL(opt_zero)},
     {NAME("utrace"), CTL(opt_utrace)}, {NAME("xmalloc"), CTL(opt_xmalloc)},
-    {NAME("experimental_tcache_gc"), CTL(opt_experimental_tcache_gc)},
     {NAME("tcache"), CTL(opt_tcache)},
     {NAME("tcache_max"), CTL(opt_tcache_max)},
-    {NAME("tcache_nslots_small_min"), CTL(opt_tcache_nslots_small_min)},
-    {NAME("tcache_nslots_small_max"), CTL(opt_tcache_nslots_small_max)},
-    {NAME("tcache_nslots_large"), CTL(opt_tcache_nslots_large)},
-    {NAME("lg_tcache_nslots_mul"), CTL(opt_lg_tcache_nslots_mul)},
     {NAME("tcache_gc_incr_bytes"), CTL(opt_tcache_gc_incr_bytes)},
-    {NAME("tcache_gc_delay_bytes"), CTL(opt_tcache_gc_delay_bytes)},
-    {NAME("lg_tcache_flush_small_div"), CTL(opt_lg_tcache_flush_small_div)},
-    {NAME("lg_tcache_flush_large_div"), CTL(opt_lg_tcache_flush_large_div)},
     {NAME("thp"), CTL(opt_thp)},
     {NAME("lg_extent_max_active_fit"), CTL(opt_lg_extent_max_active_fit)},
     {NAME("prof"), CTL(opt_prof)}, {NAME("prof_prefix"), CTL(opt_prof_prefix)},
@@ -827,9 +810,7 @@ static const ctl_named_node_t stats_arenas_i_hpa_shard_alloc_j_node[] = {
     {NAME("ps"), CTL(stats_arenas_i_hpa_shard_alloc_j_ps)},
     {NAME("pages_per_ps"), CTL(stats_arenas_i_hpa_shard_alloc_j_pages_per_ps)},
     {NAME("extents_per_ps"),
-        CTL(stats_arenas_i_hpa_shard_alloc_j_extents_per_ps)},
-    {NAME("total_elapsed_ns_per_ps"),
-        CTL(stats_arenas_i_hpa_shard_alloc_j_total_elapsed_ns_per_ps)}};
+        CTL(stats_arenas_i_hpa_shard_alloc_j_extents_per_ps)}};
 
 static const ctl_named_node_t super_stats_arenas_i_hpa_shard_alloc_j_node[] = {
     {NAME(""), CHILD(named, stats_arenas_i_hpa_shard_alloc_j)}};
@@ -2279,21 +2260,9 @@ CTL_RO_NL_CGEN(config_fill, opt_junk, opt_junk, const char *)
 CTL_RO_NL_CGEN(config_fill, opt_zero, opt_zero, bool)
 CTL_RO_NL_CGEN(config_utrace, opt_utrace, opt_utrace, bool)
 CTL_RO_NL_CGEN(config_xmalloc, opt_xmalloc, opt_xmalloc, bool)
-CTL_RO_NL_GEN(opt_experimental_tcache_gc, opt_experimental_tcache_gc, bool)
 CTL_RO_NL_GEN(opt_tcache, opt_tcache, bool)
 CTL_RO_NL_GEN(opt_tcache_max, opt_tcache_max, size_t)
-CTL_RO_NL_GEN(
-    opt_tcache_nslots_small_min, opt_tcache_nslots_small_min, unsigned)
-CTL_RO_NL_GEN(
-    opt_tcache_nslots_small_max, opt_tcache_nslots_small_max, unsigned)
-CTL_RO_NL_GEN(opt_tcache_nslots_large, opt_tcache_nslots_large, unsigned)
-CTL_RO_NL_GEN(opt_lg_tcache_nslots_mul, opt_lg_tcache_nslots_mul, ssize_t)
 CTL_RO_NL_GEN(opt_tcache_gc_incr_bytes, opt_tcache_gc_incr_bytes, size_t)
-CTL_RO_NL_GEN(opt_tcache_gc_delay_bytes, opt_tcache_gc_delay_bytes, size_t)
-CTL_RO_NL_GEN(
-    opt_lg_tcache_flush_small_div, opt_lg_tcache_flush_small_div, unsigned)
-CTL_RO_NL_GEN(
-    opt_lg_tcache_flush_large_div, opt_lg_tcache_flush_large_div, unsigned)
 CTL_RO_NL_GEN(opt_thp, thp_mode_names[opt_thp], const char *)
 CTL_RO_NL_GEN(
     opt_lg_extent_max_active_fit, opt_lg_extent_max_active_fit, size_t)
@@ -2369,7 +2338,7 @@ thread_arena_ctl(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
 	}
 
 	if (have_percpu_arena && PERCPU_ARENA_ENABLED(opt_percpu_arena)) {
-		if (newind < percpu_arena_ind_limit(opt_percpu_arena)) {
+		if (newind < percpu_arena_ind_limit()) {
 			/*
 			 * Setting thread.arena to an arena in the auto range
 			 * means "resume automatic per-CPU selection" rather than
@@ -4118,12 +4087,6 @@ CTL_RO_CGEN(config_stats, stats_arenas_i_hpa_shard_alloc_j_pages_per_ps,
 CTL_RO_CGEN(config_stats, stats_arenas_i_hpa_shard_alloc_j_extents_per_ps,
     arenas_i(mib[2])
         ->astats->hpastats.nonderived_stats.hpa_alloc_extents_per_ps[mib[5]],
-    uint64_t);
-CTL_RO_CGEN(config_stats,
-    stats_arenas_i_hpa_shard_alloc_j_total_elapsed_ns_per_ps,
-    arenas_i(mib[2])
-        ->astats->hpastats.nonderived_stats
-        .hpa_alloc_total_elapsed_ns_per_ps[mib[5]],
     uint64_t);
 
 /* Full, nonhuge */

@@ -493,6 +493,14 @@ TEST_BEGIN(test_mallctl_config) {
 	TEST_MALLCTL_CONFIG(utrace, bool);
 	TEST_MALLCTL_CONFIG(xmalloc, bool);
 
+	bool   infallible_new;
+	size_t infallible_new_size = sizeof(infallible_new);
+	expect_d_eq(mallctl("config.infallible_new", &infallible_new,
+	                &infallible_new_size, NULL, 0),
+	    0, "Unexpected mallctl() failure");
+	expect_b_eq(infallible_new, JEMALLOC_INFALLIBLE_NEW != 0,
+	    "Public compile-time and runtime infallible-new values differ");
+
 #undef TEST_MALLCTL_CONFIG
 }
 TEST_END
@@ -761,7 +769,7 @@ TEST_BEGIN(test_thread_arena) {
 		expect_d_eq(mallctl("thread.arena", (void *)&old_arena_ind, &sz,
 		                NULL, 0),
 		    0, "Unexpected mallctl() failure");
-		new_arena_ind = percpu_arena_ind_limit(opt_percpu_arena) - 1;
+		new_arena_ind = percpu_arena_ind_limit() - 1;
 		if (old_arena_ind != new_arena_ind) {
 			/*
 			 * Setting thread.arena to an index within the per-CPU

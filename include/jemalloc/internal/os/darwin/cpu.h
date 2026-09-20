@@ -2,13 +2,15 @@
 #define JEMALLOC_INTERNAL_OS_DARWIN_CPU_H
 
 /*
- * Darwin CPU backend. os_cpu_ncpus()/os_cpu_count_is_deterministic() are
- * identical to posix/cpu.h's (macOS has no CPU_COUNT/sched_getaffinity()
- * either, so both already fall through to the same sysconf() path) --
+ * Darwin CPU backend. os_cpu_ncpus(), os_cpu_count_is_deterministic(), and
+ * os_cpu_yield() are identical to posix/cpu.h's (macOS has no
+ * CPU_COUNT/sched_getaffinity() either, so the first two already fall
+ * through to the same sysconf() path, and sched_yield() is standard POSIX),
  * duplicated here rather than shared via #include, matching every other
  * os/<os>/<module>.h backend (each is self-contained; see os/darwin/mutex.h).
  * os_cpu_current() is genuinely different: no sched_getcpu() on macOS, so it
  * reads the CPU index directly out of a CPU register instead.
+ * os_cpu_set_affinity() is an unreachable no-op (see os/cpu.h).
  */
 #include "jemalloc/internal/jemalloc_preamble.h"
 
@@ -19,35 +21,50 @@ os_cpu_ncpus(void) {
 #ifdef CPU_COUNT
 	{
 		cpu_set_t set;
+		int err;
 #	if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
-		sched_getaffinity(0, sizeof(set), &set);
+		err = sched_getaffinity(0, sizeof(set), &set);
 #	else
-		pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
+		err = pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
 #	endif
+		if (err != 0) {
+			return 1;
+		}
 		result = CPU_COUNT(&set);
 	}
 #else
 	result = sysconf(_SC_NPROCESSORS_ONLN);
 #endif
-	return ((result == -1) ? 1 : (unsigned)result);
+	return result <= 0 ? 1 : (unsigned)result;
+}
+
+JEMALLOC_ALWAYS_INLINE unsigned
+os_cpu_affinity_cpus(unsigned *cpus, unsigned max_cpus) {
+	(void)cpus;
+	(void)max_cpus;
+	return 0;
 }
 
 JEMALLOC_ALWAYS_INLINE bool
 os_cpu_count_is_deterministic(void) {
 	long cpu_onln = sysconf(_SC_NPROCESSORS_ONLN);
 	long cpu_conf = sysconf(_SC_NPROCESSORS_CONF);
-	if (cpu_onln != cpu_conf) {
+	if (cpu_onln <= 0 || cpu_conf <= 0 || cpu_onln != cpu_conf) {
 		return false;
 	}
 #	if defined(CPU_COUNT)
 	cpu_set_t set;
+	int err;
 #		if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
-	sched_getaffinity(0, sizeof(set), &set);
+	err = sched_getaffinity(0, sizeof(set), &set);
 #		else  /* !JEMALLOC_HAVE_SCHED_SETAFFINITY */
-	pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
+	err = pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
 #		endif /* JEMALLOC_HAVE_SCHED_SETAFFINITY */
+	if (err != 0) {
+		return false;
+	}
 	long cpu_affinity = CPU_COUNT(&set);
-	if (cpu_affinity != cpu_conf) {
+	if (cpu_affinity <= 0 || cpu_affinity != cpu_conf) {
 		return false;
 	}
 #	endif         /* CPU_COUNT */
@@ -83,6 +100,17 @@ os_cpu_current(void) {
 	return -1;
 #  endif
 #endif
+}
+
+JEMALLOC_ALWAYS_INLINE bool
+os_cpu_set_affinity(int cpu) {
+	(void)cpu;
+	return false;
+}
+
+JEMALLOC_ALWAYS_INLINE void
+os_cpu_yield(void) {
+	sched_yield();
 }
 
 #endif /* JEMALLOC_INTERNAL_OS_DARWIN_CPU_H */
