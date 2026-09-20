@@ -36,6 +36,14 @@ static pa_central_t arena_pa_central_global;
 
 div_info_t arena_binind_div_info[SC_NBINS];
 
+JET_EXTERN void
+bin_dalloc_locked_begin(
+    bin_dalloc_locked_info_t *info, szind_t binind) {
+	info->div_info = arena_binind_div_info[binind];
+	info->nregs = bin_infos[binind].nregs;
+	info->ndalloc = 0;
+}
+
 size_t opt_oversize_threshold = OVERSIZE_THRESHOLD_DEFAULT;
 size_t oversize_threshold = OVERSIZE_THRESHOLD_DEFAULT;
 
@@ -694,11 +702,13 @@ arena_prof_promote(tsdn_t *tsdn, void *ptr, size_t usize, size_t bumped_usize) {
 	assert(isalloc(tsdn, ptr) == usize);
 }
 
-static size_t
+size_t
 arena_prof_demote(tsdn_t *tsdn, edata_t *edata, const void *ptr) {
 	cassert(config_prof);
+	assert(opt_prof);
 	assert(ptr != NULL);
-	size_t usize = isalloc(tsdn, ptr);
+	size_t usize = edata_usize_get(edata);
+	assert(isalloc(tsdn, ptr) == usize);
 	size_t bumped_usize = sz_sa2u(usize, PROF_SAMPLE_ALIGNMENT);
 	assert(bumped_usize <= SC_LARGE_MINCLASS
 	    && PAGE_CEILING(bumped_usize) == bumped_usize);
@@ -710,17 +720,6 @@ arena_prof_demote(tsdn_t *tsdn, edata_t *edata, const void *ptr) {
 
 	assert(isalloc(tsdn, ptr) == bumped_usize);
 
-	return bumped_usize;
-}
-
-static void
-arena_dalloc_promoted_impl(
-    tsdn_t *tsdn, void *ptr, tcache_t *tcache, bool slow_path, edata_t *edata) {
-	cassert(config_prof);
-	assert(opt_prof);
-
-	size_t usize = edata_usize_get(edata);
-	size_t bumped_usize = arena_prof_demote(tsdn, edata, ptr);
 	if (config_opt_safety_checks && usize < SC_LARGE_MINCLASS) {
 		/*
 		 * Currently, we only do redzoning for small sampled
@@ -728,21 +727,8 @@ arena_dalloc_promoted_impl(
 		 */
 		safety_check_verify_redzone(ptr, usize, bumped_usize);
 	}
-	szind_t bumped_ind = sz_size2index(bumped_usize);
-	if (bumped_usize >= SC_LARGE_MINCLASS && tcache != NULL
-	    && tcache_can_cache_large(tcache, bumped_ind)) {
-		tcache_dalloc_large(
-		    tsdn_tsd(tsdn), tcache, ptr, bumped_ind, slow_path);
-	} else {
-		large_dalloc(tsdn, edata);
-	}
-}
 
-void
-arena_dalloc_promoted(
-    tsdn_t *tsdn, void *ptr, tcache_t *tcache, bool slow_path) {
-	edata_t *edata = emap_edata_lookup(tsdn, &arena_emap_global, ptr);
-	arena_dalloc_promoted_impl(tsdn, ptr, tcache, slow_path, edata);
+	return bumped_usize;
 }
 
 void
@@ -784,8 +770,8 @@ arena_reset(tsd_t *tsd, arena_t *arena) {
 			prof_free(tsd, ptr, usize, &alloc_ctx);
 		}
 		if (config_prof && opt_prof && alloc_ctx.szind < SC_NBINS) {
-			arena_dalloc_promoted_impl(tsd_tsdn(tsd), ptr,
-			    /* tcache */ NULL, /* slow_path */ true, edata);
+			arena_prof_demote(tsd_tsdn(tsd), edata, ptr);
+			large_dalloc(tsd_tsdn(tsd), edata);
 		} else {
 			large_dalloc(tsd_tsdn(tsd), edata);
 		}
@@ -1084,76 +1070,6 @@ label_refill:
 	return filled;
 }
 
-size_t
-arena_fill_small_fresh(tsdn_t *tsdn, arena_t *arena, szind_t binind,
-    void **ptrs, size_t nfill, bool zero) {
-	assert(binind < SC_NBINS);
-	const bin_info_t *bin_info = &bin_infos[binind];
-	const size_t      nregs = bin_info->nregs;
-	assert(nregs > 0);
-	const size_t usize = bin_info->reg_size;
-
-	const bool manual_arena = !arena_is_auto(arena);
-	unsigned   binshard;
-	bin_t     *bin = bin_choose(tsdn, arena, binind, &binshard);
-
-	size_t              nslab = 0;
-	size_t              filled = 0;
-	edata_t            *slab = NULL;
-	edata_list_active_t fulls;
-	edata_list_active_init(&fulls);
-
-	while (filled < nfill
-	    && (slab = arena_slab_alloc(
-	            tsdn, arena, binind, binshard, bin_info))
-	        != NULL) {
-		assert((size_t)edata_nfree_get(slab) == nregs);
-		++nslab;
-		size_t batch = nfill - filled;
-		if (batch > nregs) {
-			batch = nregs;
-		}
-		assert(batch > 0);
-		bin_slab_reg_alloc_batch(
-		    slab, bin_info, (unsigned)batch, &ptrs[filled]);
-		assert(edata_addr_get(slab) == ptrs[filled]);
-		if (zero) {
-			memset(ptrs[filled], 0, batch * usize);
-		}
-		filled += batch;
-		if (batch == nregs) {
-			if (manual_arena) {
-				edata_list_active_append(&fulls, slab);
-			}
-			slab = NULL;
-		}
-	}
-
-	malloc_mutex_lock(tsdn, &bin->lock);
-	/*
-	 * Only the last slab can be non-empty, and the last slab is non-empty
-	 * iff slab != NULL.
-	 */
-	if (slab != NULL) {
-		bin_lower_slab(tsdn, !manual_arena, slab, bin);
-	}
-	if (manual_arena) {
-		edata_list_active_concat(&bin->slabs_full, &fulls);
-	}
-	assert(edata_list_active_empty(&fulls));
-	if (config_stats) {
-		bin->stats.nslabs += nslab;
-		bin->stats.curslabs += nslab;
-		bin->stats.nmalloc += filled;
-		bin->stats.nrequests += filled;
-		bin->stats.curregs += filled;
-	}
-	malloc_mutex_unlock(tsdn, &bin->lock);
-
-	arena_decay_tick(tsdn, arena);
-	return filled;
-}
-
 static void *
 arena_malloc_small(tsdn_t *tsdn, arena_t *arena, szind_t binind, bool zero) {
 	assert(binind < SC_NBINS);
@@ -1221,33 +1137,6 @@ arena_malloc_hard(tsdn_t *tsdn, arena_t *arena, size_t size, szind_t ind,
 		return arena_malloc_small(tsdn, arena, ind, zero);
 	} else {
 		return large_malloc(tsdn, arena, sz_s2u(size), zero);
-	}
-}
-
-void *
-arena_palloc(tsdn_t *tsdn, arena_t *arena, size_t usize, size_t alignment,
-    bool zero, bool slab, tcache_t *tcache) {
-	if (slab) {
-		assert(sz_can_use_slab(usize));
-		/* Small; alignment doesn't require special slab placement. */
-
-		/* usize should be a result of sz_sa2u() */
-		assert((usize & (alignment - 1)) == 0);
-
-		/*
-		 * Small usize can't come from an alignment larger than a page.
-		 */
-		assert(alignment <= PAGE);
-
-		return arena_malloc(tsdn, arena, usize, sz_size2index(usize),
-		    zero, slab, tcache, true);
-	} else {
-		if (likely(alignment <= CACHELINE)) {
-			return large_malloc(tsdn, arena, usize, zero);
-		} else {
-			return large_palloc(
-			    tsdn, arena, usize, alignment, zero);
-		}
 	}
 }
 
@@ -1584,10 +1473,10 @@ arena_ptr_array_flush_impl(tsd_t *tsd, szind_t binind,
 	 * '...' is morally equivalent, the code itself needs slight tweaks.
 	 */
 	if (small) {
-		return arena_ptr_array_flush_impl_small(tsdn, binind, arr,
+		arena_ptr_array_flush_impl_small(tsdn, binind, arr,
 		    item_edata, nflush, stats_arena, merge_stats);
 	} else {
-		return arena_ptr_array_flush_impl_large(tsdn, binind, arr,
+		arena_ptr_array_flush_impl_large(tsdn, binind, arr,
 		    item_edata, nflush, stats_arena, merge_stats);
 	}
 }
@@ -1674,64 +1563,6 @@ done:
 	assert(edata == emap_edata_lookup(tsdn, &arena_emap_global, ptr));
 	*newsize = edata_usize_get(edata);
 
-	return ret;
-}
-
-static void *
-arena_ralloc_move_helper(tsdn_t *tsdn, arena_t *arena, size_t usize,
-    size_t alignment, bool zero, bool slab, tcache_t *tcache) {
-	if (alignment == 0) {
-		return arena_malloc(tsdn, arena, usize, sz_size2index(usize),
-		    zero, slab, tcache, true);
-	}
-	usize = sz_sa2u(usize, alignment);
-	if (unlikely(usize == 0 || usize > SC_LARGE_MAXCLASS)) {
-		return NULL;
-	}
-	return ipalloct_explicit_slab(
-	    tsdn, usize, alignment, zero, slab, tcache, arena);
-}
-
-void *
-arena_ralloc(tsdn_t *tsdn, arena_t *arena, void *ptr, size_t oldsize,
-    size_t size, size_t alignment, bool zero, bool slab, tcache_t *tcache) {
-	size_t usize = alignment == 0 ? sz_s2u(size) : sz_sa2u(size, alignment);
-	if (unlikely(usize == 0 || size > SC_LARGE_MAXCLASS)) {
-		return NULL;
-	}
-
-	if (likely(slab)) {
-		assert(sz_can_use_slab(usize));
-		/* Try to avoid moving the allocation. */
-		UNUSED size_t newsize;
-		if (!arena_ralloc_no_move(
-		        tsdn, ptr, oldsize, usize, 0, zero, &newsize)) {
-			return ptr;
-		}
-	}
-
-	if (oldsize >= SC_LARGE_MINCLASS && usize >= SC_LARGE_MINCLASS) {
-		return large_ralloc(tsdn, arena, ptr, usize, alignment, zero,
-		    tcache);
-	}
-
-	/*
-	 * size and oldsize are different enough that we need to move the
-	 * object.  In that case, fall back to allocating new space and copying.
-	 */
-	void *ret = arena_ralloc_move_helper(
-	    tsdn, arena, usize, alignment, zero, slab, tcache);
-	if (ret == NULL) {
-		return NULL;
-	}
-
-	/*
-	 * Junk/zero-filling were already done by
-	 * ipalloc()/arena_malloc().
-	 */
-	size_t copysize = (usize < oldsize) ? usize : oldsize;
-	memcpy(ret, ptr, copysize);
-	isdalloct(tsdn, ptr, oldsize, tcache, NULL, true);
 	return ret;
 }
 

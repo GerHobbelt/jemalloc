@@ -442,19 +442,6 @@ cache_bin_alloc(cache_bin_t *bin, bool *success) {
 	return cache_bin_alloc_impl(bin, success, true);
 }
 
-JEMALLOC_ALWAYS_INLINE cache_bin_sz_t
-cache_bin_alloc_batch(cache_bin_t *bin, size_t num, void **out) {
-	cache_bin_sz_t n = cache_bin_ncached_get_internal(bin);
-	if (n > num) {
-		n = (cache_bin_sz_t)num;
-	}
-	memcpy(out, bin->stack_head, n * sizeof(void *));
-	bin->stack_head += n;
-	cache_bin_low_water_adjust(bin);
-
-	return n;
-}
-
 JEMALLOC_ALWAYS_INLINE bool
 cache_bin_full(cache_bin_t *bin) {
 	return (
@@ -536,14 +523,13 @@ cache_bin_stash(cache_bin_t *bin, void *ptr) {
 /* Get the number of stashed pointers. */
 JEMALLOC_ALWAYS_INLINE cache_bin_sz_t
 cache_bin_nstashed_get_internal(cache_bin_t *bin) {
-	cache_bin_sz_t ncached_max = cache_bin_ncached_max_get(bin);
 	cache_bin_sz_t low_bits_low_bound = cache_bin_low_bits_low_bound_get(
 	    bin);
 
 	cache_bin_sz_t n = cache_bin_diff(
 	                       bin, low_bits_low_bound, bin->low_bits_full)
 	    / sizeof(void *);
-	assert(n <= ncached_max);
+	assert(n <= cache_bin_ncached_max_get(bin));
 	if (config_debug && n != 0) {
 		/* Below are for assertions only. */
 		void **low_bound = cache_bin_low_bound_get(bin);

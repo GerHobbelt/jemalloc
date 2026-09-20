@@ -46,6 +46,7 @@ extern bool                  opt_disable_large_size_classes;
 
 extern const char *opt_malloc_conf_symlink;
 extern const char *opt_malloc_conf_env_var;
+extern const char *je_malloc_conf_2_conf_harder;
 
 /* Escape free-fastpath when ptr & mask == 0 (for sanitization purpose). */
 extern uintptr_t san_cache_bin_nonfast_mask;
@@ -56,7 +57,6 @@ extern unsigned ncpus;
 void    *bootstrap_malloc(size_t size);
 void    *bootstrap_calloc(size_t num, size_t size);
 void     bootstrap_free(void *ptr);
-size_t   batch_alloc(void **ptrs, size_t num, size_t size, int flags);
 void     sdallocx_default(void *ptr, size_t size, int flags);
 void     free_default(void *ptr);
 void    *malloc_default(size_t size);

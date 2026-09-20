@@ -51,7 +51,6 @@
 #include "jemalloc/internal/prof_structs.h"
 #include "jemalloc/internal/arena_structs.h"
 #include "jemalloc/internal/tcache_structs.h"
-#include "jemalloc/internal/background_thread_structs.h"
 
 /******************************************************************************/
 /* EXTERNS */
@@ -59,10 +58,11 @@
 
 #include "jemalloc/internal/jemalloc_internal_externs.h"
 #include "jemalloc/internal/arena_externs.h"
-#include "jemalloc/internal/large_externs.h"
+#include "jemalloc/internal/large.h"
 #include "jemalloc/internal/tcache_externs.h"
+#include "jemalloc/internal/malloc_dispatch.h"
 #include "jemalloc/internal/prof_externs.h"
-#include "jemalloc/internal/background_thread_externs.h"
+#include "jemalloc/internal/background_thread.h"
 
 /******************************************************************************/
 /* INLINES */
@@ -77,6 +77,7 @@
 #include "jemalloc/internal/jemalloc_internal_inlines_b.h"
 #include "jemalloc/internal/tcache_inlines.h"
 #include "jemalloc/internal/arena_inlines_b.h"
+#include "jemalloc/internal/malloc_dispatch_inlines.h"
 #include "jemalloc/internal/jemalloc_internal_inlines_c.h"
 #include "jemalloc/internal/prof_inlines.h"
 #include "jemalloc/internal/background_thread_inlines.h"
