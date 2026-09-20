@@ -16,6 +16,7 @@
 #include "jemalloc/internal/jemalloc_init.h"
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
+#include "jemalloc/internal/os.h"
 #include "jemalloc/internal/san.h"
 #include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/spin.h"
@@ -55,10 +56,14 @@ malloc_initializer_set(void) {
 }
 
 /* Used to avoid initialization races. */
-#ifdef _WIN32
-#	if _WIN32_WINNT >= 0x0600
-static malloc_mutex_t init_lock = SRWLOCK_INIT;
-#	else
+#if !OS_MUTEX_HAS_STATIC_INIT
+/*
+ * This target's os_mutex_t has no static initializer (currently: pre-Vista
+ * Windows CRITICAL_SECTION; see os/windows/mutex.h), so MALLOC_MUTEX_
+ * INITIALIZER is empty -- init_lock needs its own lazy-init workaround
+ * instead, being the one static malloc_mutex_t that must be usable before
+ * any other code runs.
+ */
 static malloc_mutex_t init_lock;
 static bool           init_lock_initialized = false;
 
@@ -82,12 +87,11 @@ _init_init_lock(void) {
 	init_lock_initialized = true;
 }
 
-#		ifdef _MSC_VER
-#			pragma section(".CRT$XCU", read)
+#	ifdef _MSC_VER
+#		pragma section(".CRT$XCU", read)
 JEMALLOC_SECTION(".CRT$XCU")
 JEMALLOC_ATTR(used)
 static const void(WINAPI *init_init_lock)(void) = _init_init_lock;
-#		endif
 #	endif
 #else
 static malloc_mutex_t init_lock = MALLOC_MUTEX_INITIALIZER;
@@ -121,8 +125,6 @@ malloc_slow_flag_init(void) {
 }
 
 static void stats_print_atexit(void);
-static unsigned malloc_ncpus(void);
-static bool malloc_cpu_count_is_deterministic(void);
 
 static bool
 malloc_init_hard_needed(void) {
@@ -240,7 +242,7 @@ malloc_init_hard_a0_locked(void) {
 	experimental_thread_events_boot();
 	/*
 	 * Create enough scaffolding to allow recursive allocation in
-	 * malloc_ncpus().
+	 * os_cpu_ncpus().
 	 */
 	narenas_auto_set(1);
 	manual_arena_base_set(narenas_auto + 1);
@@ -314,90 +316,15 @@ stats_print_atexit(void) {
 	je_malloc_stats_print(NULL, NULL, opt_stats_print_opts);
 }
 
-static unsigned
-malloc_ncpus(void) {
-	long result;
-
-#ifdef _WIN32
-	SYSTEM_INFO si;
-	GetSystemInfo(&si);
-	result = si.dwNumberOfProcessors;
-#elif defined(CPU_COUNT)
-	/*
-	 * glibc >= 2.6 has the CPU_COUNT macro.
-	 *
-	 * glibc's sysconf() uses isspace().  glibc allocates for the first time
-	 * *before* setting up the isspace tables.  Therefore we need a
-	 * different method to get the number of CPUs.
-	 *
-	 * The getaffinity approach is also preferred when only a subset of CPUs
-	 * is available, to avoid using more arenas than necessary.
-	 */
-	{
-#	if defined(__FreeBSD__) || defined(__DragonFly__)
-		cpuset_t set;
-#	else
-		cpu_set_t set;
-#	endif
-#	if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
-		sched_getaffinity(0, sizeof(set), &set);
-#	else
-		pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
-#	endif
-		result = CPU_COUNT(&set);
-	}
-#else
-	result = sysconf(_SC_NPROCESSORS_ONLN);
-#endif
-	return ((result == -1) ? 1 : (unsigned)result);
-}
-
-/*
- * Ensure that number of CPUs is determistinc, i.e. it is the same based on:
- * - sched_getaffinity()
- * - _SC_NPROCESSORS_ONLN
- * - _SC_NPROCESSORS_CONF
- * Since otherwise tricky things is possible with percpu arenas in use.
- */
-static bool
-malloc_cpu_count_is_deterministic(void) {
-#ifdef _WIN32
-	return true;
-#else
-	long cpu_onln = sysconf(_SC_NPROCESSORS_ONLN);
-	long cpu_conf = sysconf(_SC_NPROCESSORS_CONF);
-	if (cpu_onln != cpu_conf) {
-		return false;
-	}
-#	if defined(CPU_COUNT)
-#		if defined(__FreeBSD__) || defined(__DragonFly__)
-	cpuset_t set;
-#		else
-	cpu_set_t set;
-#		endif /* __FreeBSD__ */
-#		if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
-	sched_getaffinity(0, sizeof(set), &set);
-#		else  /* !JEMALLOC_HAVE_SCHED_SETAFFINITY */
-	pthread_getaffinity_np(pthread_self(), sizeof(set), &set);
-#		endif /* JEMALLOC_HAVE_SCHED_SETAFFINITY */
-	long cpu_affinity = CPU_COUNT(&set);
-	if (cpu_affinity != cpu_conf) {
-		return false;
-	}
-#	endif         /* CPU_COUNT */
-	return true;
-#endif
-}
-
 /* Initialize data structures which may trigger recursive allocation. */
 static bool
 malloc_init_hard_recursible(void) {
 	malloc_init_state = malloc_init_recursible;
 
-	ncpus = malloc_ncpus();
+	ncpus = os_cpu_ncpus();
 	if (opt_percpu_arena != percpu_arena_disabled) {
 		bool cpu_count_is_deterministic =
-		    malloc_cpu_count_is_deterministic();
+		    os_cpu_count_is_deterministic();
 		if (!cpu_count_is_deterministic) {
 			/*
 			 * If # of CPU is not deterministic, and narenas not
@@ -420,13 +347,18 @@ malloc_init_hard_recursible(void) {
 		}
 	}
 
-#if (defined(JEMALLOC_HAVE_PTHREAD_ATFORK) && !defined(JEMALLOC_MUTEX_INIT_CB) \
-    && !defined(JEMALLOC_ZONE) && !defined(_WIN32)                             \
-    && !defined(__native_client__))
-	/* LinuxThreads' pthread_atfork() allocates. */
-	if (pthread_atfork(jemalloc_prefork, jemalloc_postfork_parent,
-	        jemalloc_postfork_child)
-	    != 0) {
+#ifndef JEMALLOC_MUTEX_INIT_CB
+	/*
+	 * jemalloc_fork.c names these jemalloc_prefork()/jemalloc_postfork_
+	 * parent() only when !JEMALLOC_MUTEX_INIT_CB; under it they're exported
+	 * as _malloc_prefork()/_malloc_postfork() instead (FreeBSD-libthr calls
+	 * those directly, bypassing pthread_atfork() registration entirely --
+	 * see os_process_register_atfork()'s own !JEMALLOC_MUTEX_INIT_CB check).
+	 * Referencing the former names here unconditionally would be a link
+	 * error under JEMALLOC_MUTEX_INIT_CB, since they wouldn't exist.
+	 */
+	if (os_process_register_atfork(jemalloc_prefork,
+	        jemalloc_postfork_parent, jemalloc_postfork_child)) {
 		malloc_write("<jemalloc>: Error in pthread_atfork()\n");
 		if (opt_abort) {
 			abort();
@@ -599,7 +531,7 @@ malloc_init_hard(void) {
 	 */
 	assert(SC_NTINY == 0 || SC_LG_TINY_MAXCLASS <= SC_LG_LARGE_MINCLASS);
 
-#if defined(_WIN32) && _WIN32_WINNT < 0x0600
+#if !OS_MUTEX_HAS_STATIC_INIT
 	_init_init_lock();
 #endif
 	malloc_mutex_lock(TSDN_NULL, &init_lock);

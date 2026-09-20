@@ -1,6 +1,7 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
 
 #include "jemalloc/internal/malloc_io.h"
+#include "jemalloc/internal/os.h"
 #include "jemalloc/internal/util.h"
 
 #ifdef assert
@@ -90,26 +91,9 @@ malloc_write(const char *s) {
 	}
 }
 
-/*
- * glibc provides a non-standard strerror_r() when _GNU_SOURCE is defined, so
- * provide a wrapper.
- */
 int
 buferror(int err, char *buf, size_t buflen) {
-#ifdef _WIN32
-	FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err, 0, (LPSTR)buf,
-	    (DWORD)buflen, NULL);
-	return 0;
-#elif defined(JEMALLOC_STRERROR_R_RETURNS_CHAR_WITH_GNU_SOURCE)                \
-    && defined(_GNU_SOURCE)
-	char *b = strerror_r(err, buf, buflen);
-	if (b != buf) {
-		malloc_snprintf(buf, buflen, "%s", b);
-	}
-	return 0;
-#else
-	return strerror_r(err, buf, buflen);
-#endif
+	return os_strerror(err, buf, buflen);
 }
 
 uintmax_t
@@ -758,79 +742,14 @@ malloc_printf(const char *format, ...) {
 	va_end(ap);
 }
 
-static ssize_t
-malloc_write_fd_syscall(int fd, const void *buf, size_t count) {
-#if defined(JEMALLOC_USE_SYSCALL) && defined(SYS_write)
-	/*
-	 * Use syscall(2) rather than write(2) when possible in order to avoid
-	 * the possibility of memory allocation within libc.  This is necessary
-	 * on FreeBSD; most operating systems do not have this problem though.
-	 *
-	 * syscall() returns long or int, depending on platform, so capture the
-	 * result in the widest plausible type to avoid compiler warnings.
-	 */
-	return (ssize_t)syscall(SYS_write, fd, buf, count);
-#else
-	return (ssize_t)write(fd, buf,
-#	ifdef _WIN32
-	    (unsigned int)
-#	endif
-	        count);
-#endif
-}
-
 ssize_t
 malloc_write_fd(int fd, const void *buf, size_t count) {
-	size_t bytes_written = 0;
-	do {
-		ssize_t result = malloc_write_fd_syscall(fd,
-		    &((const byte_t *)buf)[bytes_written],
-		    count - bytes_written);
-		if (result < 0) {
-#ifndef _WIN32
-			if (errno == EINTR) {
-				continue;
-			}
-#endif
-			return result;
-		}
-		bytes_written += result;
-	} while (bytes_written < count);
-	return bytes_written;
-}
-
-static ssize_t
-malloc_read_fd_syscall(int fd, void *buf, size_t count) {
-#if defined(JEMALLOC_USE_SYSCALL) && defined(SYS_read)
-	return (ssize_t)syscall(SYS_read, fd, buf, count);
-#else
-	return (ssize_t)read(fd, buf,
-#	ifdef _WIN32
-	    (unsigned int)
-#	endif
-	        count);
-#endif
+	return os_file_write(fd, buf, count);
 }
 
 ssize_t
 malloc_read_fd(int fd, void *buf, size_t count) {
-	size_t bytes_read = 0;
-	do {
-		ssize_t result = malloc_read_fd_syscall(
-		    fd, &((byte_t *)buf)[bytes_read], count - bytes_read);
-		if (result < 0) {
-#ifndef _WIN32
-			if (errno == EINTR) {
-				continue;
-			}
-#endif
-			return result;
-		} else if (result == 0) {
-			break;
-		}
-		bytes_read += result;
-	} while (bytes_read < count);
-	return bytes_read;
+	return os_file_read(fd, buf, count);
 }
 
 /*

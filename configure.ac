@@ -342,6 +342,10 @@ if test "x$enable_cxx" = "x1" ; then
   if test "x${HAVE_CXX14}" = "x1" -o "x${HAVE_CXX17}" = "x1"; then
     JE_CXXFLAGS_ADD([-Wall])
     JE_CXXFLAGS_ADD([-Wextra])
+    dnl Mirror the C flags: this warning fires on the universal zero
+    dnl initializer idiom (e.g. the tcache/TSD static initializers) that is
+    dnl shared with the C++ sources via the internal headers.
+    JE_CXXFLAGS_ADD([-Wno-missing-braces])
     JE_CXXFLAGS_ADD([-g3])
 
     SAVED_LIBS="${LIBS}"
@@ -801,7 +805,6 @@ case "${host}" in
   *-*-freebsd*)
 	JE_APPEND_VS(CPPFLAGS, -D_BSD_SOURCE)
 	abi="elf"
-	AC_DEFINE([JEMALLOC_SYSCTL_VM_OVERCOMMIT], [ ], [ ])
 	force_lazy_lock="1"
 	;;
   *-*-dragonfly*)
@@ -821,7 +824,6 @@ case "${host}" in
 	glibc="0"
 	AC_DEFINE([JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS], [ ], [ ])
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
-	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	AC_DEFINE([JEMALLOC_C11_ATOMICS], [ ], [ ])
 	force_tls="0"
@@ -836,7 +838,6 @@ case "${host}" in
 	abi="elf"
 	AC_DEFINE([JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS], [ ], [ ])
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
-	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	if test "${LG_SIZEOF_PTR}" = "3"; then
 	  default_retain="1"
@@ -850,7 +851,6 @@ case "${host}" in
 	glibc="1"
 	AC_DEFINE([JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS], [ ], [ ])
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
-	AC_DEFINE([JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	AC_DEFINE([JEMALLOC_USE_CXX_THROW], [ ], [ ])
 	if test "${LG_SIZEOF_PTR}" = "3"; then
@@ -863,7 +863,6 @@ case "${host}" in
 	JE_APPEND_VS(CPPFLAGS, -D_GNU_SOURCE)
 	abi="elf"
 	AC_DEFINE([JEMALLOC_HAS_ALLOCA_H], [ ], [ ])
-	AC_DEFINE([JEMALLOC_SYSCTL_VM_OVERCOMMIT], [ ], [ ])
 	AC_DEFINE([JEMALLOC_THREADED_INIT], [ ], [ ])
 	AC_DEFINE([JEMALLOC_USE_CXX_THROW], [ ], [ ])
 	;;
@@ -2850,7 +2849,7 @@ fi
 ],
 [enable_pageid="0"]
 )
-if test "x$enable_pageid" = "x1" ; then
+if test "x$enable_pageid" = "x1" -a "x$have_prctl" = "x1" ; then
   AC_DEFINE([JEMALLOC_PAGEID], [ ], [ ])
 fi
 
