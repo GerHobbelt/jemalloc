@@ -1,16 +1,27 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
 
+#include "jemalloc/internal/arena.h"
+#include "jemalloc/internal/arena_inlines.h"
 #include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/background_thread.h"
+#include "jemalloc/internal/background_thread_inlines.h"
+#include "jemalloc/internal/bin_inlines.h"
 #include "jemalloc/internal/decay.h"
 #include "jemalloc/internal/ehooks.h"
 #include "jemalloc/internal/extent_dss.h"
 #include "jemalloc/internal/extent_mmap.h"
-#include "jemalloc/internal/san.h"
+#include "jemalloc/internal/jemalloc_internal_inlines_a.h"
+#include "jemalloc/internal/jemalloc_internal_inlines_c.h"
+#include "jemalloc/internal/large.h"
 #include "jemalloc/internal/mutex.h"
+#include "jemalloc/internal/prof.h"
+#include "jemalloc/internal/prof_inlines.h"
 #include "jemalloc/internal/rtree.h"
 #include "jemalloc/internal/safety_check.h"
+#include "jemalloc/internal/san.h"
+#include "jemalloc/internal/tcache.h"
 #include "jemalloc/internal/util.h"
+#include "jemalloc/internal/witness.h"
 
 JEMALLOC_DIAGNOSTIC_DISABLE_SPURIOUS
 
@@ -283,7 +294,7 @@ arena_cache_bin_array_unregister(tsdn_t *tsdn, arena_t *arena,
  * from scratch (descriptors held by other threads at fork time are gone)
  * without locking.
  */
-void
+static void
 arena_cache_bin_array_postfork_child(arena_t *arena,
     cache_bin_array_descriptor_t *desc_or_null) {
 	cassert(config_stats);
@@ -641,7 +652,7 @@ arena_do_deferred_work(tsdn_t *tsdn, arena_t *arena) {
 	pa_shard_do_deferred_work(tsdn, &arena->pa_shard);
 }
 
-void
+static void
 arena_slab_dalloc(tsdn_t *tsdn, arena_t *arena, edata_t *slab) {
 	bool deferred_work_generated = false;
 	pa_dalloc(tsdn, &arena->pa_shard, slab, &deferred_work_generated);

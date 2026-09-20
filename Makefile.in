@@ -272,6 +272,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/oversize_threshold.c \
 	$(srcroot)test/unit/pa.c \
 	$(srcroot)test/unit/pac.c \
+	$(srcroot)test/unit/pac_sec_integration.c \
 	$(srcroot)test/unit/pack.c \
 	$(srcroot)test/unit/pages.c \
 	$(srcroot)test/unit/peak.c \
@@ -330,6 +331,7 @@ endif
 TESTS_INTEGRATION := $(srcroot)test/integration/aligned_alloc.c \
 	$(srcroot)test/integration/allocated.c \
 	$(srcroot)test/integration/extent.c \
+	$(srcroot)test/integration/free_sized.c \
 	$(srcroot)test/integration/malloc.c \
 	$(srcroot)test/integration/mallocx.c \
 	$(srcroot)test/integration/MALLOCX_ARENA.c \
@@ -349,8 +351,11 @@ ifeq (@enable_cxx@, 1)
 CPP_SRCS := $(srcroot)src/jemalloc_cpp.cpp
 TESTS_INTEGRATION_CPP := $(srcroot)test/integration/cpp/basic.cpp
 ifeq (@enable_cxx_exceptions@, 1)
-TESTS_INTEGRATION_CPP += $(srcroot)test/integration/cpp/infallible_new_true.cpp \
-	$(srcroot)test/integration/cpp/infallible_new_false.cpp
+ifeq (@enable_cxx_infallible_new@, 1)
+TESTS_INTEGRATION_CPP += $(srcroot)test/integration/cpp/infallible_new.cpp
+else
+TESTS_INTEGRATION_CPP += $(srcroot)test/integration/cpp/failing_new.cpp
+endif
 endif
 else
 CPP_SRCS :=
@@ -362,7 +367,8 @@ TESTS_ANALYZE := $(srcroot)test/analyze/prof_bias.c \
 TESTS_STRESS := $(srcroot)test/stress/fill_flush.c \
 	$(srcroot)test/stress/large_microbench.c \
 	$(srcroot)test/stress/mallctl.c \
-	$(srcroot)test/stress/microbench.c
+	$(srcroot)test/stress/microbench.c \
+	$(srcroot)test/stress/tsd_reentrant.c
 ifeq (@enable_cxx@, 1)
 TESTS_STRESS_CPP := $(srcroot)test/stress/cpp/microbench.cpp
 else

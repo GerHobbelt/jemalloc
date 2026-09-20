@@ -1,8 +1,11 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
 
+#include "jemalloc/internal/arena.h"
 #include "jemalloc/internal/assert.h"
 #include "jemalloc/internal/atomic.h"
+#include "jemalloc/internal/background_thread.h"
+#include "jemalloc/internal/conf.h"
+#include "jemalloc/internal/extent.h"
 #include "jemalloc/internal/extent_dss.h"
 #include "jemalloc/internal/extent_mmap.h"
 #include "jemalloc/internal/fxp.h"
@@ -10,12 +13,11 @@
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/nstime.h"
-#include "jemalloc/internal/safety_check.h"
+#include "jemalloc/internal/prof.h"
 #include "jemalloc/internal/san.h"
 #include "jemalloc/internal/sc.h"
+#include "jemalloc/internal/tcache.h"
 #include "jemalloc/internal/util.h"
-
-#include "jemalloc/internal/conf.h"
 
 /* Whether encountered any invalid config options. */
 bool had_conf_error;
@@ -729,11 +731,6 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 			if (config_xmalloc) {
 				CONF_HANDLE_BOOL(opt_xmalloc, "xmalloc")
 			}
-			if (config_enable_cxx) {
-				CONF_HANDLE_BOOL(
-				    opt_experimental_infallible_new,
-				    "experimental_infallible_new")
-			}
 
 			CONF_HANDLE_BOOL(opt_experimental_tcache_gc,
 			    "experimental_tcache_gc")
@@ -878,10 +875,6 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 			    "hpa_min_purge_interval_ms", 0, 0,
 			    CONF_DONT_CHECK_MIN, CONF_DONT_CHECK_MAX, false);
 
-			CONF_HANDLE_SSIZE_T(
-			    opt_hpa_opts.experimental_max_purge_nhp,
-			    "experimental_hpa_max_purge_nhp", -1, SSIZE_MAX);
-
 			/*
 			 * Accept either a ratio-based or an exact purge
 			 * threshold.
@@ -952,6 +945,17 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 			    CONF_CHECK_MAX, true);
 			CONF_HANDLE_SIZE_T(opt_hpa_sec_opts.max_bytes,
 			    "hpa_sec_max_bytes", SEC_OPTS_MAX_BYTES_DEFAULT, 0,
+			    CONF_CHECK_MIN, CONF_DONT_CHECK_MAX, true);
+			CONF_HANDLE_SIZE_T(opt_pac_sec_opts.nshards,
+			    "experimental_pac_sec_nshards", 0, 0,
+			    CONF_CHECK_MIN, CONF_DONT_CHECK_MAX, true);
+			CONF_HANDLE_SIZE_T(opt_pac_sec_opts.max_alloc,
+			    "experimental_pac_sec_max_alloc", PAGE,
+			    USIZE_GROW_SLOW_THRESHOLD, CONF_CHECK_MIN,
+			    CONF_CHECK_MAX, true);
+			CONF_HANDLE_SIZE_T(opt_pac_sec_opts.max_bytes,
+			    "experimental_pac_sec_max_bytes",
+			    SEC_OPTS_MAX_BYTES_DEFAULT, 0,
 			    CONF_CHECK_MIN, CONF_DONT_CHECK_MAX, true);
 
 			if (CONF_MATCH("slab_sizes")) {

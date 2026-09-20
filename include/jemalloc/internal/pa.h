@@ -91,9 +91,6 @@ struct pa_shard_s {
 	 */
 	bool ever_used_hpa;
 
-	/* Allocates from a PAC. */
-	pac_t pac;
-
 	hpa_shard_t hpa;
 
 	/* The source of edata_t objects. */
@@ -109,6 +106,9 @@ struct pa_shard_s {
 
 	/* The base from which we get the ehooks and allocate metadat. */
 	base_t *base;
+
+	/* Allocates from a PAC. */
+	pac_t pac;
 };
 
 static inline bool
@@ -220,8 +220,6 @@ void pa_shard_postfork_parent(tsdn_t *tsdn, pa_shard_t *shard);
 void pa_shard_postfork_child(tsdn_t *tsdn, pa_shard_t *shard);
 
 size_t pa_shard_nactive(const pa_shard_t *shard);
-size_t pa_shard_ndirty(const pa_shard_t *shard);
-size_t pa_shard_nmuzzy(const pa_shard_t *shard);
 
 void pa_shard_basic_stats_merge(
     const pa_shard_t *shard, size_t *nactive, size_t *ndirty, size_t *nmuzzy);

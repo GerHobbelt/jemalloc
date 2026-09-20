@@ -7,7 +7,12 @@ extern "C" {
 #endif
 
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
+
+#include "jemalloc/internal/arena.h"
+#include "jemalloc/internal/jemalloc_internal_externs.h"
+#include "jemalloc/internal/jemalloc_internal_inlines_c.h"
+#include "jemalloc/internal/prof.h"
+#include "jemalloc/internal/tcache.h"
 
 #ifdef __cplusplus
 }
@@ -61,20 +66,20 @@ void operator delete[](
 JEMALLOC_NOINLINE
 static void *
 handleOOM(std::size_t size, bool nothrow) {
-	if (opt_experimental_infallible_new) {
-		const char *huge_warning = (size >= ((std::size_t)1 << 30))
-		    ? "This may be caused by heap corruption, if the large size "
-		      "is unexpected (suggest building with sanitizers for "
-		      "debugging)."
-		    : "";
-
-		safety_check_fail(
-		    "<jemalloc>: Allocation of size %zu failed. "
-		    "%s opt.experimental_infallible_new is true. Aborting.\n",
-		    size, huge_warning);
+#ifdef JEMALLOC_INFALLIBLE_NEW
+	if (nothrow) {
 		return nullptr;
 	}
-
+	const char *huge_warning = (size >= ((std::size_t)1 << 30))
+	    ? "This may be caused by heap corruption, if the large size "
+	      "is unexpected (suggest building with sanitizers for "
+	      "debugging). "
+	    : "";
+	safety_check_fail(
+	    "<jemalloc>: Allocation of size %zu failed. %sAborting.\n",
+	    size, huge_warning);
+	return nullptr;
+#else
 	void *ptr = nullptr;
 
 	while (ptr == nullptr) {
@@ -103,6 +108,7 @@ handleOOM(std::size_t size, bool nothrow) {
 #endif
 	}
 	return ptr;
+#endif
 }
 
 template <bool IsNoExcept>
@@ -225,12 +231,11 @@ operator delete[](void *ptr, const std::nothrow_t &) noexcept {
 JEMALLOC_ALWAYS_INLINE
 void
 sizedDeleteImpl(void *ptr, std::size_t size) noexcept {
-	if (unlikely(ptr == nullptr)) {
-		return;
-	}
 	LOG("core.operator_delete.entry", "ptr: %p, size: %zu", ptr, size);
 
-	je_sdallocx_noflags(ptr, size);
+	if (likely(ptr != nullptr)) {
+		je_sdallocx_noflags(ptr, size);
+	}
 
 	LOG("core.operator_delete.exit", "");
 }
@@ -256,13 +261,12 @@ alignedSizedDeleteImpl(
 	if (config_debug) {
 		assert(((size_t)alignment & ((size_t)alignment - 1)) == 0);
 	}
-	if (unlikely(ptr == nullptr)) {
-		return;
-	}
 	LOG("core.operator_delete.entry", "ptr: %p, size: %zu, alignment: %zu",
 	    ptr, size, alignment);
 
-	je_sdallocx_impl(ptr, size, MALLOCX_ALIGN(alignment));
+	if (likely(ptr != nullptr)) {
+		je_sdallocx_impl(ptr, size, MALLOCX_ALIGN(alignment));
+	}
 
 	LOG("core.operator_delete.exit", "");
 }

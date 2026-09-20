@@ -4,6 +4,10 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/edata.h"
 
+/* Forward decls; only used as pointer types below. */
+typedef struct arena_s     arena_t;
+typedef struct prof_info_s prof_info_t;
+
 void *large_malloc(tsdn_t *tsdn, arena_t *arena, size_t usize, bool zero);
 void *large_palloc(
     tsdn_t *tsdn, arena_t *arena, size_t usize, size_t alignment, bool zero);

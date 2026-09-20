@@ -4,19 +4,26 @@
 #define JEMALLOC_INTERNAL_TSD_INTERNALS_H
 
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/arena_types.h"
+#include "jemalloc/internal/arena_decay_constants.h"
 #include "jemalloc/internal/assert.h"
 #include "jemalloc/internal/tsd_binshards.h"
 #include "jemalloc/internal/jemalloc_internal_externs.h"
 #include "jemalloc/internal/peak.h"
-#include "jemalloc/internal/prof_types.h"
 #include "jemalloc/internal/rtree_tsd.h"
-#include "jemalloc/internal/tcache_structs.h"
-#include "jemalloc/internal/tcache_types.h"
+#include "jemalloc/internal/tcache.h"
 #include "jemalloc/internal/thread_event_registry.h"
 #include "jemalloc/internal/tsd_types.h"
 #include "jemalloc/internal/util.h"
 #include "jemalloc/internal/witness.h"
+
+/*
+ * Forward decls.  tsd_internals.h cannot include arena.h / prof.h directly:
+ * those headers' STRUCTS-section includes trigger mutex.h -> tsd.h ->
+ * tsd_generic.h, which would re-enter this file before its body finishes.
+ * Each consumer here only uses these as pointer types.
+ */
+typedef struct arena_s      arena_t;
+typedef struct prof_tdata_s prof_tdata_t;
 
 /*
  * Thread-Specific-Data layout
@@ -76,6 +83,7 @@ typedef void (*test_callback_t)(int *);
 	O(arena, arena_t *, arena_t *)                                         \
 	O(arena_decay_ticker, ticker_geom_t, ticker_geom_t)                    \
 	O(sec_shard, uint8_t, uint8_t)                                         \
+	O(pac_sec_shard, uint8_t, uint8_t)                                     \
 	O(binshards, tsd_binshards_t, tsd_binshards_t)                         \
 	O(peak, peak_t, peak_t)                                                \
 	O(tcache_slow, tcache_slow_t, tcache_slow_t)                           \
@@ -95,6 +103,7 @@ typedef void (*test_callback_t)(int *);
 	    /* arena */ NULL, /* arena_decay_ticker */                         \
 	    TICKER_GEOM_INIT(ARENA_DECAY_NTICKS_PER_UPDATE),                   \
 	    /* sec_shard */ (uint8_t) - 1,                                     \
+	    /* pac_sec_shard */ (uint8_t) - 1,                                 \
 	    /* binshards */ TSD_BINSHARDS_ZERO_INITIALIZER,                    \
 	    /* peak */ PEAK_INITIALIZER, /* tcache_slow */                     \
 	    TCACHE_SLOW_ZERO_INITIALIZER,                                      \

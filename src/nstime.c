@@ -1,9 +1,7 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
-
-#include "jemalloc/internal/nstime.h"
 
 #include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/nstime.h"
 
 #define BILLION UINT64_C(1000000000)
 #define MILLION UINT64_C(1000000)
@@ -62,11 +60,13 @@ nstime_ns(const nstime_t *time) {
 	return time->ns;
 }
 
+#ifdef JEMALLOC_JET
 uint64_t
 nstime_ms(const nstime_t *time) {
 	nstime_assert_initialized(time);
 	return time->ns / MILLION;
 }
+#endif
 
 uint64_t
 nstime_sec(const nstime_t *time) {
@@ -121,6 +121,7 @@ nstime_subtract(nstime_t *time, const nstime_t *subtrahend) {
 	time->ns -= subtrahend->ns;
 }
 
+#ifdef JEMALLOC_JET
 void
 nstime_isubtract(nstime_t *time, uint64_t subtrahend) {
 	nstime_assert_initialized(time);
@@ -129,6 +130,7 @@ nstime_isubtract(nstime_t *time, uint64_t subtrahend) {
 	/* No initialize operand -- subtraction must be initialized. */
 	time->ns -= subtrahend;
 }
+#endif
 
 void
 nstime_imultiply(nstime_t *time, uint64_t multiplier) {
@@ -160,7 +162,7 @@ nstime_divide(const nstime_t *time, const nstime_t *divisor) {
 	return time->ns / divisor->ns;
 }
 
-uint64_t
+static uint64_t
 nstime_ns_between(const nstime_t *earlier, const nstime_t *later) {
 	nstime_assert_initialized(earlier);
 	nstime_assert_initialized(later);

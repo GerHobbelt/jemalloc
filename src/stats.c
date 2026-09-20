@@ -1,13 +1,16 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
 
+#include "jemalloc/internal/arena.h"
 #include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/background_thread.h"
 #include "jemalloc/internal/ctl.h"
 #include "jemalloc/internal/emitter.h"
 #include "jemalloc/internal/fxp.h"
-#include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/mutex_prof.h"
+#include "jemalloc/internal/prof.h"
+#include "jemalloc/internal/prof_inlines.h"
 #include "jemalloc/internal/prof_stats.h"
+#include "jemalloc/internal/tcache.h"
 
 static const char *const global_mutex_names[mutex_prof_num_global_mutexes] = {
 #define OP(mtx) #mtx,
@@ -836,6 +839,37 @@ stats_arena_hpa_shard_sec_print(emitter_t *emitter, unsigned i) {
 }
 
 static void
+stats_arena_pac_sec_print(emitter_t *emitter, unsigned i) {
+	size_t sec_bytes;
+	size_t sec_hits;
+	size_t sec_misses;
+	size_t sec_dalloc_flush;
+	size_t sec_dalloc_noflush;
+	CTL_M2_GET("stats.arenas.0.pac_sec_bytes", i, &sec_bytes, size_t);
+	emitter_kv(emitter, "pac_sec_bytes",
+	    "Bytes in PAC small extent cache",
+	    emitter_type_size, &sec_bytes);
+	CTL_M2_GET("stats.arenas.0.pac_sec_hits", i, &sec_hits, size_t);
+	emitter_kv(emitter, "pac_sec_hits",
+	    "Total hits in PAC small extent cache",
+	    emitter_type_size, &sec_hits);
+	CTL_M2_GET("stats.arenas.0.pac_sec_misses", i, &sec_misses, size_t);
+	emitter_kv(emitter, "pac_sec_misses",
+	    "Total misses in PAC small extent cache",
+	    emitter_type_size, &sec_misses);
+	CTL_M2_GET("stats.arenas.0.pac_sec_dalloc_noflush", i,
+	    &sec_dalloc_noflush, size_t);
+	emitter_kv(emitter, "pac_sec_dalloc_noflush",
+	    "Dalloc calls without flush in PAC small extent cache",
+	    emitter_type_size, &sec_dalloc_noflush);
+	CTL_M2_GET("stats.arenas.0.pac_sec_dalloc_flush", i, &sec_dalloc_flush,
+	    size_t);
+	emitter_kv(emitter, "pac_sec_dalloc_flush",
+	    "Dalloc calls with flush in PAC small extent cache",
+	    emitter_type_size, &sec_dalloc_flush);
+}
+
+static void
 stats_arena_hpa_shard_counters_print(
     emitter_t *emitter, unsigned i, uint64_t uptime) {
 	size_t npageslabs;
@@ -1567,6 +1601,10 @@ stats_arena_print(emitter_t *emitter, unsigned i, bool bins, bool large,
 	GET_AND_EMIT_MEM_STAT(extent_avail)
 #undef GET_AND_EMIT_MEM_STAT
 
+	if (opt_pac_sec_opts.nshards > 0) {
+		stats_arena_pac_sec_print(emitter, i);
+	}
+
 	if (mutex) {
 		stats_arena_mutexes_print(emitter, i, uptime);
 	}
@@ -1620,6 +1658,7 @@ stats_general_print(emitter_t *emitter) {
 	CONFIG_WRITE_BOOL(cache_oblivious);
 	CONFIG_WRITE_BOOL(debug);
 	CONFIG_WRITE_BOOL(fill);
+	CONFIG_WRITE_BOOL(infallible_new);
 	CONFIG_WRITE_BOOL(lazy_lock);
 	emitter_kv(emitter, "malloc_conf", "config.malloc_conf",
 	    emitter_type_string, &config_malloc_conf);
@@ -1735,7 +1774,6 @@ stats_general_print(emitter_t *emitter) {
 	OPT_WRITE_UINT64("hpa_hugify_delay_ms")
 	OPT_WRITE_BOOL("hpa_hugify_sync")
 	OPT_WRITE_UINT64("hpa_min_purge_interval_ms")
-	OPT_WRITE_SSIZE_T("experimental_hpa_max_purge_nhp")
 	if (je_mallctl("opt.hpa_dirty_mult", (void *)&u32v, &u32sz, NULL, 0)
 	    == 0) {
 		/*
@@ -1760,6 +1798,9 @@ stats_general_print(emitter_t *emitter) {
 	OPT_WRITE_SIZE_T("hpa_sec_nshards")
 	OPT_WRITE_SIZE_T("hpa_sec_max_alloc")
 	OPT_WRITE_SIZE_T("hpa_sec_max_bytes")
+	OPT_WRITE_SIZE_T("experimental_pac_sec_nshards")
+	OPT_WRITE_SIZE_T("experimental_pac_sec_max_alloc")
+	OPT_WRITE_SIZE_T("experimental_pac_sec_max_bytes")
 	OPT_WRITE_BOOL("huge_arena_pac_thp")
 	OPT_WRITE_CHAR_P("metadata_thp")
 	OPT_WRITE_INT64("mutex_max_spin")
@@ -1771,7 +1812,6 @@ stats_general_print(emitter_t *emitter) {
 	OPT_WRITE_BOOL("zero")
 	OPT_WRITE_BOOL("utrace")
 	OPT_WRITE_BOOL("xmalloc")
-	OPT_WRITE_BOOL("experimental_infallible_new")
 	OPT_WRITE_BOOL("experimental_tcache_gc")
 	OPT_WRITE_BOOL("tcache")
 	OPT_WRITE_SIZE_T("tcache_max")
@@ -2205,17 +2245,17 @@ stats_print(write_cb_t *write_cb, void *cbopaque, const char *opts) {
 	emitter_end(&emitter);
 }
 
-uint64_t
+static uint64_t
 stats_interval_new_event_wait(tsd_t *tsd) {
 	return stats_interval_accum_batch;
 }
 
-uint64_t
+static uint64_t
 stats_interval_postponed_event_wait(tsd_t *tsd) {
 	return TE_MIN_START_WAIT;
 }
 
-void
+static void
 stats_interval_event_handler(tsd_t *tsd) {
 	uint64_t last_event = thread_allocated_last_event_get(tsd);
 	uint64_t last_sample_event = tsd_stats_interval_last_event_get(tsd);

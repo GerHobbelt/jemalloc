@@ -396,8 +396,31 @@ if test "x$enable_cxx" = "x1"; then
     enable_cxx_exceptions="0"
   fi
 fi
+
+dnl Do not enable infallible-new by default. When enabled, the throwing
+dnl operator new aborts on OOM (with size logged) instead of throwing
+dnl std::bad_alloc; nothrow new still returns null. With LTO this lets the
+dnl compiler prove operator new doesn't throw and elide exception cleanup.
+AC_ARG_ENABLE([cxx-infallible-new],
+  [AS_HELP_STRING([--enable-cxx-infallible-new],
+    [Abort on OOM in throwing operator new instead of throwing std::bad_alloc])],
+[if test "x$enable_cxx_infallible_new" = "xno" ; then
+  enable_cxx_infallible_new="0"
+else
+  enable_cxx_infallible_new="1"
+fi
+],
+[enable_cxx_infallible_new="0"]
+)
+if test "x$enable_cxx" != "x1" ; then
+  enable_cxx_infallible_new="0"
+fi
+if test "x$enable_cxx_infallible_new" = "x1" ; then
+  AC_DEFINE([JEMALLOC_INFALLIBLE_NEW], [ ], [ ])
+fi
 AC_SUBST([enable_cxx])
 AC_SUBST([enable_cxx_exceptions])
+AC_SUBST([enable_cxx_infallible_new])
 AC_SUBST([CONFIGURE_CXXFLAGS])
 AC_SUBST([SPECIFIED_CXXFLAGS])
 AC_SUBST([EXTRA_CXXFLAGS])
@@ -577,9 +600,10 @@ typedef unsigned __int32 uint32_t;
       else
         AC_MSG_ERROR([cannot determine number of significant virtual address bits])
       fi
-      AC_CACHE_CHECK([rdtscp support],
-		     [je_cv_rdtscp],
-		     AC_RUN_IFELSE([AC_LANG_PROGRAM(
+    fi
+    AC_CACHE_CHECK([rdtscp support],
+		   [je_cv_rdtscp],
+		   AC_RUN_IFELSE([AC_LANG_PROGRAM(
 [[
 #include <stdint.h>
 ]],
@@ -588,12 +612,11 @@ typedef unsigned __int32 uint32_t;
       asm volatile("rdtscp" : "=d"(dx) ::);
       return 0;
 ]])],
-      [je_cv_rdtscp=yes],
-      [je_cv_rdtscp=no],
-      [je_cv_rdtscp=no]))
-      if test "x${je_cv_rdtscp}" = "xyes"; then
-        AC_DEFINE([JEMALLOC_HAVE_RDTSCP], [ ], [ ])
-      fi
+    [je_cv_rdtscp=yes],
+    [je_cv_rdtscp=no],
+    [je_cv_rdtscp=no]))
+    if test "x${je_cv_rdtscp}" = "xyes"; then
+      AC_DEFINE([JEMALLOC_HAVE_RDTSCP], [ ], [ ])
     fi
     ;;
   *)

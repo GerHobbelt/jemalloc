@@ -1,9 +1,13 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
 
+#include "jemalloc/internal/jemalloc_internal_inlines_a.h"
+#include "jemalloc/internal/peak_event.h"
+#include "jemalloc/internal/prof.h"
+#include "jemalloc/internal/stats.h"
+#include "jemalloc/internal/tcache.h"
 #include "jemalloc/internal/thread_event.h"
 #include "jemalloc/internal/thread_event_registry.h"
-#include "jemalloc/internal/peak_event.h"
+#include "jemalloc/internal/tsd.h"
 
 static bool
 te_ctx_has_active_events(te_ctx_t *ctx) {
@@ -182,7 +186,6 @@ te_update_wait(tsd_t *tsd, uint64_t accumbytes, bool allow, uint64_t *ev_wait,
 	return ret;
 }
 
-extern uint64_t stats_interval_accum_batch;
 /* Return number of handlers enqueued into to_trigger array */
 static inline size_t
 te_update_alloc_events(tsd_t *tsd, te_base_cb_t **to_trigger,

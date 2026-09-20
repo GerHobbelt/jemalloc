@@ -1,7 +1,6 @@
 #ifndef JEMALLOC_INTERNAL_EXTERNS_H
 #define JEMALLOC_INTERNAL_EXTERNS_H
 
-#include "jemalloc/internal/arena_types.h"
 #include "jemalloc/internal/atomic.h"
 #include "jemalloc/internal/fxp.h"
 #include "jemalloc/internal/hpa_opts.h"
@@ -22,6 +21,7 @@ extern bool             opt_confirm_conf;
 extern bool             opt_hpa;
 extern hpa_shard_opts_t opt_hpa_opts;
 extern sec_opts_t       opt_hpa_sec_opts;
+extern sec_opts_t       opt_pac_sec_opts;
 
 extern const char *opt_junk;
 extern bool        opt_junk_alloc;
@@ -31,7 +31,6 @@ extern void (*JET_MUTABLE junk_alloc_callback)(void *ptr, size_t size);
 extern void (*JET_MUTABLE invalid_conf_abort)(void);
 extern bool                  opt_utrace;
 extern bool                  opt_xmalloc;
-extern bool                  opt_experimental_infallible_new;
 extern bool                  opt_experimental_tcache_gc;
 extern bool                  opt_zero;
 extern unsigned              opt_narenas;

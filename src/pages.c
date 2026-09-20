@@ -1,11 +1,12 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
 
-#include "jemalloc/internal/pages.h"
-
-#include "jemalloc/internal/jemalloc_internal_includes.h"
-
 #include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/base.h"
+#include "jemalloc/internal/extent.h"
+#include "jemalloc/internal/jemalloc_internal_externs.h"
 #include "jemalloc/internal/malloc_io.h"
+#include "jemalloc/internal/pages.h"
+#include "jemalloc/internal/sc.h"
 
 #ifdef JEMALLOC_SYSCTL_VM_OVERCOMMIT
 #	include <sys/sysctl.h>
@@ -782,7 +783,7 @@ os_overcommits_proc(void) {
 #endif
 
 static bool
-pages_should_skip_set_thp_state() {
+pages_should_skip_set_thp_state(void) {
 	if (opt_thp == thp_mode_do_nothing
 	    || (opt_thp == thp_mode_always
 	        && init_system_thp_mode == system_thp_mode_always)

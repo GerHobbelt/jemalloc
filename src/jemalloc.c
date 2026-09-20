@@ -1,32 +1,33 @@
 #include "jemalloc/internal/jemalloc_preamble.h"
-#include "jemalloc/internal/jemalloc_internal_includes.h"
 
+#include "jemalloc/internal/arena.h"
 #include "jemalloc/internal/arenas_management.h"
 #include "jemalloc/internal/assert.h"
 #include "jemalloc/internal/atomic.h"
+#include "jemalloc/internal/background_thread.h"
 #include "jemalloc/internal/buf_writer.h"
 #include "jemalloc/internal/ctl.h"
 #include "jemalloc/internal/emap.h"
 #include "jemalloc/internal/extent_dss.h"
-#include "jemalloc/internal/extent_mmap.h"
 #include "jemalloc/internal/fxp.h"
-#include "jemalloc/internal/san.h"
 #include "jemalloc/internal/jemalloc_init.h"
+#include "jemalloc/internal/jemalloc_internal_inlines_a.h"
+#include "jemalloc/internal/jemalloc_internal_inlines_c.h"
 #include "jemalloc/internal/jemalloc_internal_types.h"
+#include "jemalloc/internal/large.h"
 #include "jemalloc/internal/log.h"
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
-#include "jemalloc/internal/nstime.h"
+#include "jemalloc/internal/prof.h"
+#include "jemalloc/internal/prof_inlines.h"
 #include "jemalloc/internal/rtree.h"
 #include "jemalloc/internal/safety_check.h"
 #include "jemalloc/internal/sc.h"
-#include "jemalloc/internal/spin.h"
 #include "jemalloc/internal/sz.h"
-#include "jemalloc/internal/ticker.h"
+#include "jemalloc/internal/tcache.h"
 #include "jemalloc/internal/thread_event.h"
 #include "jemalloc/internal/util.h"
-
-#include "jemalloc/internal/conf.h"
+#include "jemalloc/internal/witness.h"
 
 /******************************************************************************/
 /* Data. */
@@ -140,6 +141,23 @@ const char *const zero_realloc_mode_names[] = {
 };
 
 /*
+ * Check whether the next allocation would trip the prof sampler without
+ * advancing the event counter -- the counter only advances at the end
+ * of the alloc/dalloc call.  Lets the allocation path pre-compute the
+ * prof context before committing.
+ */
+JEMALLOC_ALWAYS_INLINE bool
+prof_sample_lookahead(tsd_t *tsd, size_t usize) {
+	if (unlikely(!tsd_nominal(tsd) || tsd_reentrancy_level_get(tsd) > 0)) {
+		return false;
+	}
+	/* The subtraction is intentionally susceptible to underflow. */
+	uint64_t accumbytes = tsd_thread_allocated_get(tsd) + usize
+	    - tsd_thread_allocated_last_event_get(tsd);
+	return accumbytes >= tsd_prof_sample_event_wait_get(tsd);
+}
+
+/*
  * These are the documented values for junk fill debugging facilities -- see the
  * man page.
  */
@@ -164,7 +182,6 @@ void (*JET_MUTABLE invalid_conf_abort)(void) = &abort;
 
 bool     opt_utrace = false;
 bool     opt_xmalloc = false;
-bool     opt_experimental_infallible_new = false;
 bool     opt_experimental_tcache_gc = true;
 bool     opt_zero = false;
 unsigned opt_narenas = 0;
@@ -181,6 +198,9 @@ size_t opt_calloc_madvise_threshold = CALLOC_MADVISE_THRESHOLD_DEFAULT;
 bool             opt_hpa = false;
 hpa_shard_opts_t opt_hpa_opts = HPA_SHARD_OPTS_DEFAULT;
 sec_opts_t       opt_hpa_sec_opts = SEC_OPTS_DEFAULT;
+sec_opts_t       opt_pac_sec_opts = {0,
+    (32 * 1024) > (PAGE * 2) ? (32 * 1024) : (PAGE * 2),
+    SEC_OPTS_MAX_BYTES_DEFAULT};
 
 /* False should be the common case.  Set to true to trigger initialization. */
 bool malloc_slow = true;
@@ -600,7 +620,7 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 	/* If profiling is on, get our profiling context. */
 	if (config_prof && opt_prof) {
 		bool prof_active = prof_active_get_unlocked();
-		bool sample_event = te_prof_sample_event_lookahead(tsd, usize);
+		bool sample_event = prof_sample_lookahead(tsd, usize);
 		prof_tctx_t *tctx = prof_alloc_prep(
 		    tsd, prof_active, sample_event);
 
@@ -1052,14 +1072,35 @@ JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 je_free_sized(void *ptr, size_t size) {
 	LOG("core.free_sized.entry", "ptr: %p, size: %zu", ptr, size);
 
-	je_sdallocx_noflags(ptr, size);
+	/*
+	 * free_sized(NULL, size) is a no-op, like free(NULL).  Do the NULL
+	 * check here rather than deferring to the je_free_impl() fallback:
+	 * without a size hint, free_fastpath() does an emap lookup that NULL
+	 * fails, so it reaches free_default(), which handles NULL.  With a
+	 * size hint, the fast path skips that lookup and falls through to
+	 * sdallocx_default(), which expects a non-NULL pointer.
+	 */
+	if (likely(ptr != NULL)) {
+		je_sdallocx_noflags(ptr, size);
+	}
 
 	LOG("core.free_sized.exit", "");
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 je_free_aligned_sized(void *ptr, size_t alignment, size_t size) {
-	je_sdallocx(ptr, size, /* flags */ MALLOCX_ALIGN(alignment));
+	LOG("core.free_aligned_sized.entry",
+	    "ptr: %p, alignment: %zu, size: %zu", ptr, alignment, size);
+
+	/*
+	 * Same as je_free_sized() above: the sdallocx path expects a non-NULL
+	 * pointer, so handle the C23 free_aligned_sized(NULL, ...) no-op here.
+	 */
+	if (likely(ptr != NULL)) {
+		je_sdallocx_impl(ptr, size, /* flags */ MALLOCX_ALIGN(alignment));
+	}
+
+	LOG("core.free_aligned_sized.exit", "");
 }
 
 /*
@@ -1402,7 +1443,7 @@ irallocx_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t size,
 	prof_info_t old_prof_info;
 	prof_info_get_and_reset_recent(tsd, old_ptr, alloc_ctx, &old_prof_info);
 	bool         prof_active = prof_active_get_unlocked();
-	bool         sample_event = te_prof_sample_event_lookahead(tsd, usize);
+	bool         sample_event = prof_sample_lookahead(tsd, usize);
 	prof_tctx_t *tctx = prof_alloc_prep(tsd, prof_active, sample_event);
 	void        *p;
 	if (unlikely(tctx != PROF_TCTX_SENTINEL)) {
@@ -1640,7 +1681,7 @@ ixallocx_prof(tsd_t *tsd, void *ptr, size_t old_usize, size_t size,
 		usize_max = SC_LARGE_MAXCLASS;
 	}
 	bool prof_active = prof_active_get_unlocked();
-	bool sample_event = te_prof_sample_event_lookahead(tsd, usize_max);
+	bool sample_event = prof_sample_lookahead(tsd, usize_max);
 	prof_tctx_t *tctx = prof_alloc_prep(tsd, prof_active, sample_event);
 
 	size_t usize;
@@ -1675,7 +1716,7 @@ ixallocx_prof(tsd_t *tsd, void *ptr, size_t old_usize, size_t size,
 		prof_info_get_and_reset_recent(
 		    tsd, ptr, &new_alloc_ctx, &prof_info);
 		assert(usize <= usize_max);
-		sample_event = te_prof_sample_event_lookahead(tsd, usize);
+		sample_event = prof_sample_lookahead(tsd, usize);
 		prof_realloc(tsd, ptr, size, usize, tctx, prof_active, ptr,
 		    old_usize, &prof_info, sample_event);
 	}
