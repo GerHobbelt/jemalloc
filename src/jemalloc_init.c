@@ -197,6 +197,7 @@ malloc_init_hard_a0_locked(void) {
 	san_init(opt_lg_san_uaf_align);
 	sz_boot(&sc_data, opt_cache_oblivious);
 	bin_info_boot(&sc_data, bin_shard_sizes);
+	edata_boot();
 
 	if (opt_stats_print) {
 		/* Print statistics at exit. */
@@ -566,6 +567,7 @@ malloc_init_hard(void) {
 
 	assert(TCACHE_MAXCLASS_LIMIT <= USIZE_GROW_SLOW_THRESHOLD);
 	assert(SC_LOOKUP_MAXCLASS <= USIZE_GROW_SLOW_THRESHOLD);
+	assert(TCACHE_NBINS <= TCACHE_NBINS_MAX);
 	/*
 	 * This asserts an extreme case where TINY_MAXCLASS is larger
 	 * than LARGE_MINCLASS.  It could only happen if some constants
