@@ -34,10 +34,9 @@
  * that memory at page-fault time.  This is usually more efficient than doing
  * it later, and it allows us to benefit from the hugepages from the start.
  * Same options for purging as for the style 'none' are good starting choices:
- * no purging, or purge_threshold=HUGEPAGE, some min_purge_delay_ms that allows
- * for page not to be purged quickly, etc.  This is a good choice if you can
+ * no purging, or purge_threshold=HUGEPAGE.  This is a good choice if you can
  * afford extra memory and your application gets performance increase from
- * transparent hughepages.
+ * transparent hugepages.
  *
  * hpa_hugify_style_lazy
  * This style is suitable when you purge more aggressively (you sacrifice CPU
@@ -78,8 +77,10 @@ struct hpa_shard_opts_s {
 	size_t hugification_threshold;
 
 	/*
-	 * The HPA purges whenever the number of pages exceeds dirty_mult *
-	 * active_pages.  This may be set to (fxp_t)-1 to disable purging.
+	 * The HPA purges whenever the number of dirty pages exceeds dirty_mult X
+	 * active_pages.  Hugification is blocked if the shard's dirty pages plus
+	 * the candidate's retained pages would exceed this limit.  This may be
+	 * set to (fxp_t)-1 to disable purging.
 	 */
 	fxp_t dirty_mult;
 
@@ -109,38 +110,24 @@ struct hpa_shard_opts_s {
 	uint64_t min_purge_interval_ms;
 
 	/*
-	 * Minimum number of inactive bytes needed for a non-empty page to be
-	 * considered purgable.
+	 * Minimum number of dirty bytes needed for a non-empty hugified
+	 * pageslab to be considered purgable.
 	 *
-	 * When the number of touched inactive bytes on non-empty hugepage is
-	 * >= purge_threshold, the page is purgable.  Empty pages are always
-	 * purgable.  Setting this to HUGEPAGE bytes would only purge empty
-	 * pages if using hugify_style_eager and the purges would be exactly
-	 * HUGEPAGE bytes.  Depending on your kernel settings, this may result
-	 * in better performance.
+	 * Pageslabs that HPA considers non-huge, and empty pageslabs, are
+	 * purgable whenever they have dirty bytes.  For non-empty hugified
+	 * pageslabs, the number of touched inactive bytes must be >=
+	 * purge_threshold.  Setting this to HUGEPAGE bytes protects non-empty
+	 * hugified pageslabs from purging, avoiding partial hugepage purges.
+	 * Depending on your kernel settings, this may result in better performance.
 	 *
-	 * Please note, when threshold is reached, we will purge all the dirty
-	 * bytes, and not just up to the threshold.  If this is PAGE bytes, then
-	 * all the pages that have any dirty bytes are purgable.  We treat
-	 * purgability constraint for purge_threshold as stronger than
-	 * dirty_mult, IOW, if no page meets purge_threshold, we will not purge
-	 * even if we are above dirty_mult.
+	 * When a pageslab is purged, all its dirty bytes are purged, and not
+	 * just up to the threshold.  If this is PAGE bytes, all pageslabs with
+	 * dirty bytes are purgable.  The threshold is stronger than dirty_mult:
+	 * if all dirty bytes are in hugified pageslabs below the threshold, we
+	 * will not purge even if we are above dirty_mult.  Purging is disabled
+	 * when dirty_mult=-1.
 	 */
 	size_t purge_threshold;
-
-	/*
-	 * Minimum number of ms that needs to elapse between HP page becoming
-	 * eligible for purging and actually getting purged.
-	 *
-	 * Setting this to a larger number would give better chance of reusing
-	 * that memory.  Setting it to 0 means that page is eligible for purging
-	 * as soon as it meets the purge_threshold.  The clock resets when
-	 * purgability of the page changes (page goes from being non-purgable to
-	 * purgable).  When using eager style you probably want to allow for
-	 * some delay, to avoid purging the page too quickly and give it time to
-	 * be used.
-	 */
-	uint64_t min_purge_delay_ms;
 
 	/*
 	 * Style of hugification/dehugification (see comment at
@@ -173,8 +160,6 @@ struct hpa_shard_opts_s {
 	5 * 1000,							\
 	/* size_t purge_threshold */					\
 	PAGE,								\
-	/* min_purge_delay_ms */             				\
-	0,  								\
 	/* hugify_style */                				\
 	hpa_hugify_style_lazy						\
 }

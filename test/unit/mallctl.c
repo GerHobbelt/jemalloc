@@ -541,7 +541,6 @@ TEST_BEGIN(test_mallctl_opt) {
 	TEST_MALLCTL_OPT(size_t, experimental_pac_sec_max_alloc, always);
 	TEST_MALLCTL_OPT(size_t, experimental_pac_sec_max_bytes, always);
 	TEST_MALLCTL_OPT(size_t, hpa_purge_threshold, always);
-	TEST_MALLCTL_OPT(uint64_t, hpa_min_purge_delay_ms, always);
 	TEST_MALLCTL_OPT(const char *, hpa_hugify_style, always);
 	TEST_MALLCTL_OPT(unsigned, narenas, always);
 	TEST_MALLCTL_OPT(const char *, percpu_arena, always);
@@ -789,8 +788,22 @@ TEST_BEGIN(test_thread_arena) {
 TEST_END
 
 TEST_BEGIN(test_thread_arena_bad_oldlen_no_migrate) {
-	unsigned original_arena_ind, new_arena_ind, after_arena_ind;
-	size_t   sz = sizeof(unsigned);
+	unsigned saved_arena_ind, original_arena_ind;
+	unsigned new_arena_ind, after_arena_ind;
+	size_t   sz = sizeof(saved_arena_ind);
+
+	/* Keep per-CPU selection from changing the arena between calls. */
+	expect_d_eq(mallctl("thread.arena", (void *)&saved_arena_ind, &sz,
+	                NULL, 0),
+	    0, "Unexpected mallctl() failure");
+	sz = sizeof(original_arena_ind);
+	expect_d_eq(mallctl("arenas.create", (void *)&original_arena_ind, &sz,
+	                NULL, 0),
+	    0, "Unexpected arenas.create failure");
+	expect_d_eq(mallctl("thread.arena", NULL, NULL,
+	                (void *)&original_arena_ind, sizeof(original_arena_ind)),
+	    0, "Unexpected thread.arena failure");
+	sz = sizeof(original_arena_ind);
 
 	expect_d_eq(mallctl("thread.arena", (void *)&original_arena_ind, &sz,
 	                NULL, 0),
@@ -843,6 +856,10 @@ TEST_BEGIN(test_thread_arena_bad_oldlen_no_migrate) {
 	    0, "Unexpected mallctl() failure");
 	expect_u_eq(after_arena_ind, original_arena_ind,
 	    "Thread migrated despite long output buffer");
+
+	expect_d_eq(mallctl("thread.arena", NULL, NULL,
+	                (void *)&saved_arena_ind, sizeof(saved_arena_ind)),
+	    0, "Unexpected thread.arena restore failure");
 }
 TEST_END
 
